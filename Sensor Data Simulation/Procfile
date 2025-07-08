@@ -1,0 +1,1 @@
+web: python app_streaming.py --mode server --host 0.0.0.0 
