@@ -1,0 +1,9 @@
+{
+  "defect_prevention_weight": 179.92642186624028,
+  "test_cost_weight": -4.58996489431112,
+  "reg_compliance_weight": 78.10544333470341,
+  "downtime_weight": -19.691232585562965,
+  "cql_alpha": 4.864594334728975,
+  "cql_conservative_weight": 17.48663961200633,
+  "learning_rate": 0.00016305687346221485
+}
