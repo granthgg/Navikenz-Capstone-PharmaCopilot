@@ -1,16 +1,3 @@
-# app_streaming.py
-#
-# Memory-optimized streaming version for Heroku deployment
-# Loads data in chunks to stay within 512MB memory limit
-#
-# This version loads only small chunks of data at a time and automatically
-# loads the next chunk when the current one is exhausted, ensuring continuous
-# operation while maintaining low memory usage.
-
-import eventlet
-# We patch the standard library to be non-blocking for eventlet to work correctly.
-eventlet.monkey_patch()
-
 import pandas as pd
 import time
 import argparse
@@ -18,34 +5,48 @@ import sys
 import json
 import os
 import gc  # For garbage collection
-from threading import Thread, Event, Lock, Timer
-from flask import Flask, render_template_string, jsonify, request
-from flask_socketio import SocketIO, emit
+import asyncio
+from threading import Thread, Event, Lock
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from collections import deque
 from datetime import datetime
 import requests
+from typing import List
+import uvicorn
 
 # --- Configuration ---
-# Update this path to your Parquet or CSV file.
 DATA_FILE_PATH = 'processed_timeseries.parquet'
 # The time interval in seconds between sending data points.
 DATA_INTERVAL_SECONDS = 10
-# Maximum number of historical readings to keep in memory
-MAX_HISTORICAL_READINGS = 1000
-# Chunk size for memory-efficient loading (rows per chunk)
-CHUNK_SIZE = 500  # Adjust based on your data size and memory needs
+# Maximum number of historical readings to keep in memory (ultra-minimal for Heroku)
+MAX_HISTORICAL_READINGS = 1000 if 'PORT' in os.environ else 2000  # Extremely small for Heroku
 # Server configuration (will be updated by command line args)
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
 API_BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/api"
 
-# --- Flask & SocketIO Initialization ---
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key!'
-socketio = SocketIO(app, async_mode='eventlet')
+# --- FastAPI Initialization ---
+app = FastAPI(
+    title="Cholesterol-Lowering Drug Manufacturing Sensor Data API",
+    description="Memory-efficient real-time streaming from parquet sensor data files",
+    version="2.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- Global variables for the simulation ---
-thread = None
+simulation_thread = None
 thread_stop_event = Event()
 current_reading = {}
 current_reading_lock = Lock()
@@ -54,344 +55,268 @@ historical_readings_lock = Lock()
 data_loaded = False
 data_columns = []
 
-# --- Streaming data management ---
-data_streamer = None
-data_streamer_lock = Lock()
+# --- WebSocket connection management ---
+active_connections: List[WebSocket] = []
 
-class DataStreamer:
-    """Memory-efficient data streamer that loads data in chunks."""
+class MemoryEfficientDataStreamer:
+    """Ultra memory-efficient data streamer that loads data in small batches."""
     
-    def __init__(self, file_path, chunk_size=CHUNK_SIZE):
+    def __init__(self, file_path):
         self.file_path = file_path
-        self.chunk_size = chunk_size
-        self.current_chunk = None
-        self.current_index = 0
-        self.chunk_start_row = 0
-        self.total_rows = None
-        self.is_parquet = file_path.endswith('.parquet')
+        self.current_row_index = 0
+        self.current_batch_index = 0
+        self.current_batch = None
         self.data_columns = []
-        self.end_of_data = False
+        self.is_parquet = file_path.endswith('.parquet')
+        self.initialized = False
         
-        # Initialize first chunk and get metadata
-        self._load_metadata()
-        self._load_next_chunk()
+        # Batch configuration - medium size for efficient processing
+        self.is_heroku = 'PORT' in os.environ
+        self.batch_size = 500 if self.is_heroku else 2000  # 500 rows per batch for Heroku
+        self.total_file_rows = 0
+        self.current_file_batch = 0
+        
+        # Initialize with minimal memory footprint
+        self._initialize()
     
-    def _load_metadata(self):
-        """Load file metadata without loading all data."""
+    def _initialize(self):
+        """Initialize with minimal memory usage - only get schema, no data."""
         try:
+            print(f"Initializing efficient batch streamer for: {self.file_path}")
+            
+            if not os.path.exists(self.file_path):
+                print(f"Error: Data file {self.file_path} not found. Cannot proceed without real data.")
+                self.initialized = False
+                return
+            
             if self.is_parquet:
-                # For parquet, use a more memory-efficient approach
-                print("Loading parquet metadata efficiently...")
-                
-                # Check if we're on Heroku (memory constrained environment)
-                is_heroku = 'PORT' in os.environ
-                
-                if is_heroku:
-                    # On Heroku: Load smaller sample and estimate total rows
-                    print("Heroku detected - using memory-efficient parquet loading")
-                    try:
-                        # Try to use PyArrow for metadata if available
-                        import pyarrow.parquet as pq
-                        parquet_file = pq.ParquetFile(self.file_path)
-                        self.total_rows = parquet_file.metadata.num_rows
-                        # Get schema for column names
-                        schema = parquet_file.schema.to_arrow_schema()
-                        self.data_columns = schema.names
-                        print(f"PyArrow metadata: {self.total_rows} rows, {len(self.data_columns)} columns")
-                    except ImportError:
-                        # Fallback: Load small chunk and estimate
-                        print("PyArrow not available, using pandas estimation")
-                        sample_df = pd.read_parquet(self.file_path)
-                        # Take only first few rows to reduce memory usage
-                        sample_size = min(1000, len(sample_df))
-                        sample_df = sample_df.head(sample_size)
-                        self.data_columns = sample_df.columns.tolist()
-                        # Estimate total based on file size (rough approximation)
-                        file_size = os.path.getsize(self.file_path)
-                        estimated_rows = max(10000, file_size // 1000)  # Rough estimate
-                        self.total_rows = estimated_rows
-                        print(f"Estimated {estimated_rows} rows from {file_size} byte file")
-                        del sample_df
-                else:
-                    # Local development: Load full file for accurate metadata
-                    full_df = pd.read_parquet(self.file_path)
-                    self.data_columns = full_df.columns.tolist()
-                    self.total_rows = len(full_df)
-                    print(f"Full parquet loaded: {self.total_rows} rows, {len(self.data_columns)} columns")
-                    del full_df
+                try:
+                    # Only read schema and first tiny batch to get column info
+                    if self.is_heroku:
+                        # For Heroku: Load full batch size efficiently
+                        try:
+                            # Try to read just schema first using pyarrow
+                            import pyarrow.parquet as pq
+                            parquet_file = pq.ParquetFile(self.file_path)
+                            self.data_columns = parquet_file.schema.names
+                            self.total_file_rows = parquet_file.metadata.num_rows
+                            
+                            # Load first batch efficiently
+                            self._load_next_batch()
+                            
+                            print(f"Heroku mode: PyArrow batch loading - {len(self.current_batch)} rows, {len(self.data_columns)} columns")
+                            print(f"Total file rows: {self.total_file_rows}")
+                            
+                        except ImportError:
+                            # Fallback if pyarrow fails
+                            first_batch = pd.read_parquet(self.file_path, engine='fastparquet')
+                            self.data_columns = first_batch.columns.tolist()
+                            self.total_file_rows = len(first_batch)
+                            
+                            # Take first batch_size rows
+                            batch_size = min(self.batch_size, len(first_batch))
+                            self.current_batch = first_batch.head(batch_size).copy()
+                            
+                            print(f"Heroku fallback mode: {batch_size} rows, {len(self.data_columns)} columns")
+                            
+                            del first_batch
+                            gc.collect()
+                        
+                    else:
+                        # Local development: Still be very careful
+                        try:
+                            # Try to get just the schema first
+                            import pyarrow.parquet as pq
+                            parquet_file = pq.ParquetFile(self.file_path)
+                            self.data_columns = parquet_file.schema.names
+                            self.total_file_rows = parquet_file.metadata.num_rows
+                            
+                            # Load first small batch
+                            self._load_next_batch()
+                            
+                            print(f"Local mode: Schema-first loading - Total: {self.total_file_rows} rows, {len(self.data_columns)} columns")
+                            
+                        except ImportError:
+                            # Fallback if pyarrow not available
+                            first_batch = pd.read_parquet(self.file_path, engine='fastparquet')
+                            self.data_columns = first_batch.columns.tolist()
+                            self.total_file_rows = len(first_batch)
+                            
+                            # Keep only first batch
+                            self.current_batch = first_batch.head(self.batch_size).copy()
+                            del first_batch
+                            gc.collect()
+                        
+                except Exception as e:
+                    print(f"Error with parquet loading: {e}")
+                    print("Cannot proceed without valid parquet data.")
+                    self.initialized = False
+                    return
+            else:
+                # CSV handling - ultra minimal
+                try:
+                    # Read just a few rows to get schema
+                    schema_sample = pd.read_csv(self.file_path, delimiter=';', nrows=5)
+                    self.data_columns = schema_sample.columns.tolist()
                     
-            else:
-                # For CSV, we can count rows more efficiently
-                with open(self.file_path, 'r') as f:
-                    self.total_rows = sum(1 for line in f) - 1  # Subtract header
-                # Load small sample to get columns
-                sample_df = pd.read_csv(self.file_path, delimiter=';', nrows=1)
-                self.data_columns = sample_df.columns.tolist()
-                del sample_df
+                    # Load first batch with proper size
+                    self.current_batch = pd.read_csv(self.file_path, delimiter=';', nrows=self.batch_size)
+                    # Estimate total rows (this is rough, but sufficient for cycling)
+                    self.total_file_rows = self.batch_size * 100  # Conservative estimate
+                    
+                    del schema_sample
+                    gc.collect()
+                    
+                except Exception as e:
+                    print(f"Error loading CSV: {e}")
+                    print("Cannot proceed without valid CSV data.")
+                    self.initialized = False
+                    return
             
-            print(f"Data metadata loaded: {len(self.data_columns)} columns, ~{self.total_rows} total rows")
+            # Process timestamp if exists
+            if self.current_batch is not None and 'timestamp' in self.current_batch.columns:
+                self.current_batch['timestamp'] = pd.to_datetime(self.current_batch['timestamp'], errors='coerce')
+            
+            self.initialized = True
+            batch_rows = len(self.current_batch) if self.current_batch is not None else 0
+            print(f"Efficient batch streamer initialized: {batch_rows} rows in current batch")
+            print(f"Batch size: {self.batch_size} rows")
+            print(f"Environment: {'Heroku (batch processing)' if self.is_heroku else 'local development'}")
             
         except Exception as e:
-            print(f"Error loading metadata: {e}")
-            raise
+            print(f"Error initializing data streamer: {e}")
+            print("Failed to initialize with real data. Application cannot proceed.")
+            self.initialized = False
     
-    def _load_next_chunk(self):
-        """Load the next chunk of data."""
+    def _load_next_batch(self):
+        """Load the next batch of data from file."""
         try:
-            if self.chunk_start_row >= self.total_rows:
-                self.end_of_data = True
-                print("Reached end of data. Will restart from beginning.")
-                self.chunk_start_row = 0
-            
-            print(f"Loading chunk starting at row {self.chunk_start_row}")
-            
             if self.is_parquet:
-                # Check if we're on Heroku for memory-efficient loading
-                is_heroku = 'PORT' in os.environ
+                # Calculate skip rows for this batch
+                skip_rows = self.current_file_batch * self.batch_size
                 
-                if is_heroku:
-                    # Memory-efficient approach for Heroku
-                    print("Using memory-efficient parquet chunking for Heroku")
-                    try:
-                        # Try PyArrow for efficient chunking
-                        import pyarrow.parquet as pq
-                        parquet_file = pq.ParquetFile(self.file_path)
+                if skip_rows >= self.total_file_rows:
+                    # Reset to beginning of file and continue loading new batches
+                    self.current_file_batch = 0
+                    skip_rows = 0
+                    print(f"Reached end of file, cycling back to beginning. Loading next batch from row {skip_rows}")
+                
+                # Load next batch
+                try:
+                    import pyarrow.parquet as pq
+                    parquet_file = pq.ParquetFile(self.file_path)
+                    
+                    # Read specific row range
+                    row_groups = []
+                    rows_read = 0
+                    target_rows = self.batch_size
+                    
+                    for i in range(parquet_file.num_row_groups):
+                        rg = parquet_file.read_row_group(i)
+                        if rows_read + len(rg) > skip_rows and rows_read < skip_rows + target_rows:
+                            row_groups.append(rg)
+                            rows_read += len(rg)
+                            if rows_read >= skip_rows + target_rows:
+                                break
+                    
+                    if row_groups:
+                        batch_df = pd.concat([rg.to_pandas() for rg in row_groups], ignore_index=True)
                         
-                        # Read only the chunk we need
-                        table = parquet_file.read_row_group(
-                            min(self.chunk_start_row // 1000, parquet_file.num_row_groups - 1)
-                        )
-                        chunk_df = table.to_pandas()
+                        # Slice to exact range needed
+                        start_idx = max(0, skip_rows - (rows_read - len(batch_df)))
+                        end_idx = start_idx + self.batch_size
+                        self.current_batch = batch_df.iloc[start_idx:end_idx].copy()
                         
-                        # Slice to get exact chunk
-                        start_idx = self.chunk_start_row % 1000
-                        end_idx = min(start_idx + self.chunk_size, len(chunk_df))
-                        self.current_chunk = chunk_df.iloc[start_idx:end_idx].copy()
+                        del batch_df
+                        gc.collect()
                         
-                        del chunk_df  # Free memory
-                        
-                    except (ImportError, Exception) as e:
-                        print(f"PyArrow chunking failed ({e}), using fallback")
-                        # Fallback: Load full file and slice (not ideal but works)
-                        full_df = pd.read_parquet(self.file_path)
-                        end_row = min(self.chunk_start_row + self.chunk_size, len(full_df))
-                        self.current_chunk = full_df.iloc[self.chunk_start_row:end_row].copy()
-                        del full_df
-                else:
-                    # Local development: Load full file and slice
+                except ImportError:
+                    # Fallback without pyarrow
+                    # For very large files, this is not ideal, but works for smaller files
                     full_df = pd.read_parquet(self.file_path)
-                    end_row = min(self.chunk_start_row + self.chunk_size, len(full_df))
-                    self.current_chunk = full_df.iloc[self.chunk_start_row:end_row].copy()
+                    end_row = min(skip_rows + self.batch_size, len(full_df))
+                    self.current_batch = full_df.iloc[skip_rows:end_row].copy()
                     del full_df
+                    gc.collect()
+                
+                self.current_file_batch += 1
+                self.current_row_index = 0
+                
+                print(f"Loaded parquet batch {self.current_file_batch}: {len(self.current_batch)} rows (rows {skip_rows}-{skip_rows + len(self.current_batch) - 1})")
+                
             else:
-                # For CSV, we can skip rows more efficiently
-                self.current_chunk = pd.read_csv(
+                # CSV batch loading
+                skip_rows = self.current_file_batch * self.batch_size
+                self.current_batch = pd.read_csv(
                     self.file_path, 
-                    delimiter=';',
-                    skiprows=range(1, self.chunk_start_row + 1),  # Skip header + previous rows
-                    nrows=self.chunk_size
+                    delimiter=';', 
+                    skiprows=range(1, skip_rows + 1), 
+                    nrows=self.batch_size
                 )
-            
-            # Process timestamp column if it exists
-            if 'timestamp' in self.current_chunk.columns:
-                self.current_chunk['timestamp'] = pd.to_datetime(self.current_chunk['timestamp'])
-            
-            self.current_index = 0
-            self.chunk_start_row += len(self.current_chunk)
-            
-            print(f"Loaded chunk with {len(self.current_chunk)} rows. Memory usage optimized.")
-            
-            # Force garbage collection to free memory
-            gc.collect()
-            
+                self.current_file_batch += 1
+                self.current_row_index = 0
+                
+                print(f"Loaded CSV batch {self.current_file_batch}: {len(self.current_batch)} rows (rows {skip_rows}-{skip_rows + len(self.current_batch) - 1})")
+                
         except Exception as e:
-            print(f"Error loading chunk: {e}")
-            self.end_of_data = True
+            print(f"Error loading next batch: {e}")
+            # If we can't load next batch, reset to beginning of file
+            if self.current_batch is None or len(self.current_batch) == 0:
+                print("Failed to load any data. Resetting to beginning of file.")
+                self.current_file_batch = 0
+                self.current_row_index = 0
+    
+
     
     def get_next_row(self):
-        """Get the next row of data."""
-        if self.current_chunk is None or self.current_index >= len(self.current_chunk):
-            # Need to load next chunk
-            self._load_next_chunk()
+        """Get the next data row, loading new batches as needed."""
+        if not self.initialized:
+            return None
+        
+        # Check if we need to load next batch
+        if (self.current_batch is None or 
+            self.current_row_index >= len(self.current_batch)):
             
-            if self.current_chunk is None or len(self.current_chunk) == 0:
-                # If we still have no data, restart from beginning
-                self.chunk_start_row = 0
-                self._load_next_chunk()
-                
-                if self.current_chunk is None or len(self.current_chunk) == 0:
-                    print("No data available")
-                    return None
+            # Load next batch for all environments
+            self._load_next_batch()
+            print(f"Loaded new batch {self.current_file_batch}: {len(self.current_batch) if self.current_batch is not None else 0} rows")
+        
+        if self.current_batch is None or len(self.current_batch) == 0:
+            return None
         
         # Get current row
-        row = self.current_chunk.iloc[self.current_index]
-        self.current_index += 1
+        if self.current_row_index >= len(self.current_batch):
+            self.current_row_index = 0
+        
+        row = self.current_batch.iloc[self.current_row_index]
+        self.current_row_index += 1
         
         return row
     
     def get_columns(self):
-        """Get the column names."""
+        """Get column names."""
         return self.data_columns
 
-# --- Client functionality (same as before) ---
-class SensorAPIClient:
-    """Client class for accessing sensor data API."""
-    
-    def __init__(self, base_url=API_BASE_URL):
-        self.base_url = base_url
-        
-    def pretty_print_json(self, data):
-        """Helper function to print JSON data in a readable format."""
-        print(json.dumps(data, indent=2))
+# Global data streamer instance
+data_streamer = None
 
-    def check_api_status(self):
-        """Check if the API is available and get status information."""
-        try:
-            response = requests.get(f"{self.base_url}/status", timeout=5)
-            if response.status_code == 200:
-                print("API is available!")
-                self.pretty_print_json(response.json())
-                return True
-            else:
-                print(f"API status check failed: {response.status_code}")
-                return False
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to connect to API: {e}")
-            return False
-
-    def get_current_sensor_reading(self):
-        """Get the current sensor reading."""
-        try:
-            response = requests.get(f"{self.base_url}/current", timeout=5)
-            if response.status_code == 200:
-                print("\nCurrent Sensor Reading:")
-                self.pretty_print_json(response.json())
-                return response.json()
-            else:
-                print(f"Failed to get current reading: {response.status_code}")
-                print(response.text)
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            return None
-
-    def get_available_sensors(self):
-        """Get list of available sensors."""
-        try:
-            response = requests.get(f"{self.base_url}/sensors", timeout=5)
-            if response.status_code == 200:
-                print("\nAvailable Sensors:")
-                self.pretty_print_json(response.json())
-                return response.json().get('available_sensors', [])
-            else:
-                print(f"Failed to get sensors: {response.status_code}")
-                return []
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            return []
-
-    def get_specific_sensor_value(self, sensor_name):
-        """Get the current value of a specific sensor."""
-        try:
-            response = requests.get(f"{self.base_url}/sensor/{sensor_name}", timeout=5)
-            if response.status_code == 200:
-                print(f"\nSensor '{sensor_name}' Value:")
-                self.pretty_print_json(response.json())
-                return response.json()
-            else:
-                print(f"Failed to get sensor '{sensor_name}': {response.status_code}")
-                print(response.text)
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            return None
-
-    def get_latest_readings(self, count=5):
-        """Get the latest N sensor readings."""
-        try:
-            response = requests.get(f"{self.base_url}/latest/{count}", timeout=5)
-            if response.status_code == 200:
-                print(f"\nLatest {count} Readings:")
-                self.pretty_print_json(response.json())
-                return response.json()
-            else:
-                print(f"Failed to get latest readings: {response.status_code}")
-                print(response.text)
-                return None
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-            return None
-
-    def monitor_sensor_continuously(self, sensor_name, interval=15):
-        """Continuously monitor a specific sensor value."""
-        print(f"\nStarting continuous monitoring of sensor '{sensor_name}' (every {interval} seconds)")
-        print("Press Ctrl+C to stop...")
-        
-        try:
-            while True:
-                current_time = datetime.now().strftime("%H:%M:%S")
-                print(f"\n[{current_time}] Checking sensor '{sensor_name}'...")
-                
-                sensor_data = self.get_specific_sensor_value(sensor_name)
-                if sensor_data and sensor_data.get('status') == 'success':
-                    value = sensor_data.get('value')
-                    print(f"Current value: {value}")
-                
-                time.sleep(interval)
-                
-        except KeyboardInterrupt:
-            print("\nMonitoring stopped by user.")
-
-    def run_client_demo(self):
-        """Run a comprehensive client demonstration."""
-        print("Sensor Data API Client Demo")
-        print("=" * 50)
-        
-        # Check if API is available
-        if not self.check_api_status():
-            print("\nCannot proceed - API is not available.")
-            print("Make sure the server is running first!")
-            return False
-        
-        # Get available sensors
-        sensors = self.get_available_sensors()
-        
-        # Get current reading
-        self.get_current_sensor_reading()
-        
-        # Get latest readings
-        self.get_latest_readings(3)
-        
-        # If we have sensors available, demonstrate specific sensor access
-        if sensors:
-            first_sensor = sensors[0]
-            self.get_specific_sensor_value(first_sensor)
-        
-        print("\nClient demo completed!")
-        return True
-
-# --- Server functionality with streaming ---
-def initialize_data_streamer(file_path):
-    """Initialize the data streamer."""
+# --- Data management functions ---
+def initialize_data_streamer():
+    """Initialize the memory-efficient data streamer."""
     global data_streamer, data_loaded, data_columns
     
-    print(f"Initializing data streamer for: {file_path}")
     try:
-        with data_streamer_lock:
-            data_streamer = DataStreamer(file_path, chunk_size=CHUNK_SIZE)
+        data_streamer = MemoryEfficientDataStreamer(DATA_FILE_PATH)
+        if data_streamer.initialized:
             data_columns = data_streamer.get_columns()
             data_loaded = True
-        
-        print(f"Data streamer initialized successfully with {len(data_columns)} columns")
-        print(f"Chunk size: {CHUNK_SIZE} rows")
-        return True
-        
-    except FileNotFoundError:
-        print(f"Error: The data file was not found at '{file_path}'.")
-        print("Please make sure the file exists and the DATA_FILE_PATH is correct.")
-        return False
+            print("Data streamer initialized successfully")
+            return True
+        else:
+            print("Failed to initialize data streamer")
+            return False
     except Exception as e:
-        print(f"An error occurred while initializing data streamer: {e}")
+        print(f"Error initializing data streamer: {e}")
         return False
 
 def update_current_reading(data_point):
@@ -405,47 +330,128 @@ def update_current_reading(data_point):
         data_point_with_processing_time['processing_timestamp'] = datetime.now().isoformat()
         historical_readings.append(data_point_with_processing_time)
 
-def simulate_sensor_stream():
-    """Background thread for sensor data simulation with streaming."""
-    print("Starting streaming sensor data simulation...")
+def simulate_sensor_data():
+    """Background thread function for continuous sensor data simulation."""
+    print("Starting memory-efficient sensor data simulation...")
     
-    if not initialize_data_streamer(DATA_FILE_PATH):
-        print("Simulation stopped because data streamer could not be initialized.")
+    # Initialize data streamer - only proceed with real data
+    if not initialize_data_streamer():
+        print("Failed to initialize data streamer with real data. Stopping simulation.")
+        print("Make sure the parquet file exists and is accessible.")
         return
-
-    print("Data streamer ready. Starting continuous simulation...")
+    
+    print(f"Simulation started. Updating every {DATA_INTERVAL_SECONDS} seconds.")
     
     while not thread_stop_event.is_set():
-        with data_streamer_lock:
-            if data_streamer is None:
-                print("Data streamer not available.")
-                break
-                
+        try:
+            # Get next data point
             row = data_streamer.get_next_row()
-        
-        if row is None:
-            print("No data available from streamer.")
-            socketio.sleep(DATA_INTERVAL_SECONDS)
-            continue
-        
-        # Convert row to dictionary
-        data_point = row.to_dict()
-        
-        # Handle timestamp formatting
-        if 'timestamp' in data_point and pd.notna(data_point['timestamp']):
-            data_point['timestamp'] = data_point['timestamp'].isoformat()
-        
-        # Update current reading and emit data
-        update_current_reading(data_point)
-        print(f"Streaming data: {list(data_point.keys())[:3]}...") # Show first 3 keys to avoid clutter
-        socketio.emit('new_data', {'data': data_point})
-        socketio.sleep(DATA_INTERVAL_SECONDS)
+            
+            if row is not None:
+                # Convert to dictionary with memory optimization
+                data_point = row.to_dict()
+                
+                # Handle timestamp formatting
+                if 'timestamp' in data_point and pd.notna(data_point['timestamp']):
+                    if hasattr(data_point['timestamp'], 'isoformat'):
+                        data_point['timestamp'] = data_point['timestamp'].isoformat()
+                    else:
+                        data_point['timestamp'] = str(data_point['timestamp'])
+                
+                # Convert any NaN values to None and optimize data types for memory
+                optimized_point = {}
+                for key, value in data_point.items():
+                    if pd.isna(value):
+                        optimized_point[key] = None
+                    elif isinstance(value, (int, float)):
+                        if abs(value) > 1e10:
+                            optimized_point[key] = None  # Handle extreme values
+                        else:
+                            # Round floats to reduce memory usage
+                            if isinstance(value, float):
+                                optimized_point[key] = round(float(value), 4)
+                            else:
+                                optimized_point[key] = int(value)
+                    else:
+                        optimized_point[key] = str(value) if value is not None else None
+                
+                data_point = optimized_point
+                
+                # Update current reading
+                update_current_reading(data_point)
+                
+                # Broadcast to WebSocket clients
+                if active_connections:
+                    try:
+                        # Create event loop if needed
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                        
+                        # Broadcast the data
+                        message = {"type": "sensor_data", "data": data_point}
+                        loop.run_until_complete(broadcast_to_websockets(message))
+                    except Exception as e:
+                        print(f"Error broadcasting to WebSocket clients: {e}")
+                
+                print(f"Updated sensor data: {data_point.get('timestamp', 'N/A')} - {len(data_point)} fields")
+            else:
+                print("No data available from streamer")
+            
+            # Force aggressive garbage collection for memory efficiency
+            if hasattr(simulate_sensor_data, 'gc_counter'):
+                simulate_sensor_data.gc_counter += 1
+            else:
+                simulate_sensor_data.gc_counter = 1
+            
+            # More frequent garbage collection on Heroku
+            gc_frequency = 3 if 'PORT' in os.environ else 10
+            if simulate_sensor_data.gc_counter % gc_frequency == 0:
+                gc.collect()
+                print(f"Garbage collection performed (cycle {simulate_sensor_data.gc_counter})")
+            
+            # Wait for the specified interval
+            time.sleep(DATA_INTERVAL_SECONDS)
+            
+        except Exception as e:
+            print(f"Error in sensor simulation: {e}")
+            time.sleep(DATA_INTERVAL_SECONDS)
+    
+    print("Sensor data simulation stopped.")
 
-    print("Streaming simulation stopped.")
+async def broadcast_to_websockets(message):
+    """Broadcast message to all WebSocket connections."""
+    if active_connections:
+        disconnected = []
+        for websocket in active_connections:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.append(websocket)
+        
+        # Clean up disconnected clients
+        for websocket in disconnected:
+            if websocket in active_connections:
+                active_connections.remove(websocket)
 
-# --- API Endpoints (same as before) ---
-@app.route('/api/status')
-def api_status():
+# --- API Endpoints ---
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for deployment monitoring."""
+    return {
+        "status": "healthy",
+        "service": "cholesterol-sensor-api",
+        "version": "2.1.0-real-data-only",
+        "memory_optimized": True,
+        "real_data_only": True,
+        "data_source": "parquet_files",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/api/status")
+async def api_status():
     """Get API status and data information."""
     with current_reading_lock:
         has_current_data = bool(current_reading)
@@ -453,20 +459,29 @@ def api_status():
     with historical_readings_lock:
         historical_count = len(historical_readings)
     
-    # Add streaming-specific information
-    streaming_info = {}
-    with data_streamer_lock:
-        if data_streamer:
-            streaming_info = {
-                'chunk_size': CHUNK_SIZE,
-                'current_chunk_row': data_streamer.chunk_start_row,
-                'estimated_total_rows': data_streamer.total_rows,
-                'streaming_enabled': True
-            }
-        else:
-            streaming_info = {'streaming_enabled': False}
+    # Detailed memory usage info
+    try:
+        import psutil
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        memory_mb = round(memory_info.rss / 1024 / 1024, 2)
+        memory_percent = process.memory_percent()
+    except ImportError:
+        memory_mb = 0
+        memory_percent = 0
     
-    return jsonify({
+    # Get data streamer info
+    streamer_info = {}
+    if data_streamer:
+        current_batch_size = len(data_streamer.current_batch) if data_streamer.current_batch is not None else 0
+        streamer_info = {
+            'current_batch_size': current_batch_size,
+            'batch_size_limit': data_streamer.batch_size,
+            'current_file_batch': data_streamer.current_file_batch,
+            'total_estimated_rows': data_streamer.total_file_rows
+        }
+    
+    return {
         'status': 'active',
         'data_loaded': data_loaded,
         'has_current_reading': has_current_data,
@@ -474,362 +489,373 @@ def api_status():
         'data_interval_seconds': DATA_INTERVAL_SECONDS,
         'available_columns': data_columns if data_loaded else [],
         'max_historical_readings': MAX_HISTORICAL_READINGS,
-        'streaming_info': streaming_info,
+        'simulation_running': simulation_thread is not None and simulation_thread.is_alive(),
+        'websocket_connections': len(active_connections),
+        'memory_usage_mb': memory_mb,
+        'memory_percent': memory_percent,
+        'memory_optimized': True,
+        'ultra_minimal_mode': True,
+        'heroku_mode': 'PORT' in os.environ,
+        'streamer_info': streamer_info,
         'timestamp': datetime.now().isoformat()
-    })
+    }
 
-@app.route('/api/current')
-def api_current():
+@app.get("/api/current")
+async def api_current():
     """Get the current sensor reading."""
     with current_reading_lock:
         if not current_reading:
-            return jsonify({
-                'error': 'No current reading available',
-                'message': 'Wait for the simulation to start or check if data is loaded'
-            }), 404
+            if not data_loaded:
+                return {"error": "No current reading available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+            else:
+                return {"error": "No current reading available", "message": "Wait for the simulation to start processing real data"}
         
-        return jsonify({
-            'status': 'success',
-            'data': current_reading.copy(),
-            'timestamp': datetime.now().isoformat()
-        })
+        return {"status": "success", "data": current_reading.copy(), "timestamp": datetime.now().isoformat()}
 
-@app.route('/api/all')
-def api_all():
+@app.get("/api/all")
+async def api_all():
     """Get all historical sensor readings."""
     with historical_readings_lock:
         if not historical_readings:
-            return jsonify({
-                'error': 'No historical readings available',
-                'message': 'Wait for the simulation to generate some data'
-            }), 404
+            if not data_loaded:
+                return {"error": "No historical readings available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+            else:
+                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data from real parquet file"}
         
-        return jsonify({
-            'status': 'success',
-            'count': len(historical_readings),
-            'data': list(historical_readings),
-            'timestamp': datetime.now().isoformat()
-        })
+        return {"status": "success", "count": len(historical_readings), "data": list(historical_readings), "timestamp": datetime.now().isoformat()}
 
-@app.route('/api/latest/<int:count>')
-def api_latest(count):
+@app.get("/api/latest/{count}")
+async def api_latest(count: int):
     """Get the latest N sensor readings."""
     if count <= 0:
-        return jsonify({'error': 'Count must be a positive integer'}), 400
+        return {"error": "Count must be a positive integer"}
+    
+    # Limit count for memory efficiency
+    count = min(count, 20)
     
     with historical_readings_lock:
         if not historical_readings:
-            return jsonify({
-                'error': 'No historical readings available',
-                'message': 'Wait for the simulation to generate some data'
-            }), 404
+            if not data_loaded:
+                return {"error": "No historical readings available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+            else:
+                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data from real parquet file"}
         
         latest_readings = list(historical_readings)[-count:]
         
-        return jsonify({
-            'status': 'success',
-            'requested_count': count,
-            'returned_count': len(latest_readings),
-            'data': latest_readings,
-            'timestamp': datetime.now().isoformat()
-        })
+        return {"status": "success", "requested_count": count, "returned_count": len(latest_readings), "data": latest_readings, "timestamp": datetime.now().isoformat()}
 
-@app.route('/api/sensor/<sensor_name>')
-def api_sensor_value(sensor_name):
+@app.get("/api/sensor/{sensor_name}")
+async def api_sensor_value(sensor_name: str):
     """Get the current value of a specific sensor."""
     with current_reading_lock:
         if not current_reading:
-            return jsonify({
-                'error': 'No current reading available',
-                'message': 'Wait for the simulation to start or check if data is loaded'
-            }), 404
+            if not data_loaded:
+                return {"error": "No current reading available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+            else:
+                return {"error": "No current reading available", "message": "Wait for the simulation to start processing real data"}
         
         if sensor_name not in current_reading:
             available_sensors = list(current_reading.keys())
-            return jsonify({
-                'error': f'Sensor "{sensor_name}" not found',
-                'available_sensors': available_sensors
-            }), 404
+            return {"error": f'Sensor "{sensor_name}" not found', "available_sensors": available_sensors}
         
-        return jsonify({
-            'status': 'success',
-            'sensor_name': sensor_name,
-            'value': current_reading[sensor_name],
-            'timestamp': datetime.now().isoformat()
-        })
+        return {"status": "success", "sensor_name": sensor_name, "value": current_reading[sensor_name], "timestamp": datetime.now().isoformat()}
 
-@app.route('/api/sensors')
-def api_available_sensors():
+@app.get("/api/sensors")
+async def api_available_sensors():
     """Get list of available sensors."""
     with current_reading_lock:
         if not current_reading:
             if data_loaded:
-                return jsonify({
-                    'status': 'success',
-                    'available_sensors': data_columns,
-                    'message': 'Data loaded but no current reading yet'
-                })
+                return {"status": "success", "available_sensors": data_columns, "message": "Real data loaded but no current reading yet"}
             else:
-                return jsonify({
-                    'error': 'No data loaded yet',
-                    'message': 'Wait for data to be loaded'
-                }), 404
+                return {"error": "No real data loaded", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
         
-        return jsonify({
-            'status': 'success',
-            'available_sensors': list(current_reading.keys()),
-            'timestamp': datetime.now().isoformat()
-        })
+        return {"status": "success", "available_sensors": list(current_reading.keys()), "timestamp": datetime.now().isoformat()}
 
-# --- Web Routes (same as before) ---
-@app.route('/')
-def index():
-    """Serves the main HTML page with live data and API documentation."""
-    return render_template_string("""
+# --- Legacy Socket.IO Compatibility ---
+@app.get("/socket.io/")
+async def socket_io_fallback():
+    """Fallback for old Socket.IO requests."""
+    return {
+        "error": "Socket.IO is no longer supported",
+        "message": "This API now uses native WebSockets. Please connect to /ws endpoint instead.",
+        "websocket_endpoint": "/ws",
+        "migration_info": "The API has been upgraded to FastAPI with native WebSocket support."
+    }
+
+# --- WebSocket Endpoints ---
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time sensor data streaming."""
+    await websocket.accept()
+    active_connections.append(websocket)
+    print(f"WebSocket connected. Total connections: {len(active_connections)}")
+    
+    try:
+        while True:
+            # Keep connection alive
+            data = await websocket.receive_text()
+            # Send keep-alive response
+            await websocket.send_json({"type": "keepalive", "message": "Connection active", "timestamp": datetime.now().isoformat()})
+    except WebSocketDisconnect:
+        print("WebSocket disconnected")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        if websocket in active_connections:
+            active_connections.remove(websocket)
+
+# --- Web Interface ---
+@app.get("/")
+async def root():
+    """Serves the main HTML page."""
+    return HTMLResponse(content="""
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cholesterol-Lowering Drug Manufacturing Live Sensor Data (Streaming)</title>
+        <title>Cholesterol-Lowering Drug Manufacturing Live Sensor Data (Memory Optimized)</title>
         <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #1c1e21; margin: 0; padding: 2rem; }
-            .container { max-width: 1200px; margin: auto; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 2rem; }
+            .container { max-width: 1200px; margin: auto; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
             h1, h2 { color: #0b57d0; border-bottom: 2px solid #e7e9ec; padding-bottom: 0.5rem; }
-            .streaming-badge { background-color: #1e8e3e; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; margin-left: 1rem; }
+            .badge { color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; margin-left: 0.5rem; }
+            .streaming-badge { background-color: #1e8e3e; }
+            .memory-badge { background-color: #ff6b35; }
             #status { font-weight: bold; margin-bottom: 1rem; padding: 0.75rem; border-radius: 8px; }
             .connected { color: #1e8e3e; background-color: #e6f4ea; }
             .disconnected { color: #d93025; background-color: #fce8e6; }
-            #data-container { margin-top: 1.5rem; background-color: #f8f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #e0e0e0; min-height: 200px; overflow-wrap: break-word; font-family: "Courier New", Courier, monospace; }
-            .api-section { margin-top: 2rem; background-color: #f8f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #e0e0e0; }
-            .endpoint { background-color: #fff; padding: 1rem; margin: 0.5rem 0; border-radius: 6px; border-left: 4px solid #0b57d0; }
-            .endpoint code { background-color: #f1f3f4; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
-            pre { white-space: pre-wrap; word-wrap: break-word; }
+            #data-container { margin-top: 1.5rem; background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #e0e0e0; min-height: 200px; font-family: monospace; overflow-y: auto; max-height: 400px; }
             .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem; }
+            .endpoint { background: #fff; padding: 1rem; margin: 0.5rem 0; border-radius: 6px; border-left: 4px solid #0b57d0; }
+            .endpoint code { background: #f1f3f4; padding: 0.2rem 0.4rem; border-radius: 4px; }
+            .api-docs-link { background: #0b57d0; color: white; padding: 0.5rem 1rem; border-radius: 8px; text-decoration: none; display: inline-block; margin: 0.5rem 0.5rem 0 0; }
             @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
         </style>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.js"></script>
     </head>
     <body>
         <div class="container">
-            <h1>Cholesterol-Lowering Drug Manufacturing Live Sensor Data<span class="streaming-badge">STREAMING</span></h1>
-            <p><strong>Memory-optimized streaming version</strong> - Loads data in chunks to stay within memory limits</p>
+            <h1>Cholesterol Drug Manufacturing Live Sensor Data<span class="streaming-badge badge">REAL DATA</span><span class="memory-badge badge">MEMORY OPTIMIZED</span></h1>
+            <p><strong>Ultra memory-efficient FastAPI streaming from real parquet data</strong> - Optimized for Heroku deployment</p>
+            <p>
+                <a href="/docs" class="api-docs-link" target="_blank">📚 API Docs</a>
+                <a href="/redoc" class="api-docs-link" target="_blank">📖 ReDoc</a>
+                <a href="/api/status" class="api-docs-link" target="_blank">📊 Status</a>
+            </p>
             
             <div class="grid">
                 <div>
                     <h2>Real-time Data Stream</h2>
-                    <div id="status" class="disconnected">Status: Disconnected</div>
-                    <div id="data-container">
-                        <p>Waiting for streaming data...</p>
-                    </div>
+                    <div id="status" class="disconnected">Status: Connecting...</div>
+                    <div id="data-container">Connecting to real-time sensor data from parquet files...</div>
                 </div>
                 
-                <div class="api-section">
+                <div>
                     <h2>API Endpoints</h2>
-                    <p>Use these endpoints to access sensor data programmatically:</p>
-                    
-                    <div class="endpoint">
-                        <strong>Get Current Reading:</strong><br>
-                        <code>GET /api/current</code><br>
-                        Returns the latest sensor reading
-                    </div>
-                    
-                    <div class="endpoint">
-                        <strong>Get Specific Sensor:</strong><br>
-                        <code>GET /api/sensor/&lt;sensor_name&gt;</code><br>
-                        Returns current value of a specific sensor
-                    </div>
-                    
-                    <div class="endpoint">
-                        <strong>Get Latest N Readings:</strong><br>
-                        <code>GET /api/latest/&lt;count&gt;</code><br>
-                        Returns the latest N sensor readings
-                    </div>
-                    
-                    <div class="endpoint">
-                        <strong>Get All Historical Data:</strong><br>
-                        <code>GET /api/all</code><br>
-                        Returns all stored historical readings
-                    </div>
-                    
-                    <div class="endpoint">
-                        <strong>Get Available Sensors:</strong><br>
-                        <code>GET /api/sensors</code><br>
-                        Returns list of available sensor names
-                    </div>
-                    
-                    <div class="endpoint">
-                        <strong>Get API Status:</strong><br>
-                        <code>GET /api/status</code><br>
-                        Returns API status and streaming information
-                    </div>
+                    <div class="endpoint"><strong>Health Check:</strong><br><code>GET /health</code></div>
+                    <div class="endpoint"><strong>Current Reading:</strong><br><code>GET /api/current</code></div>
+                    <div class="endpoint"><strong>Latest Readings:</strong><br><code>GET /api/latest/5</code></div>
+                    <div class="endpoint"><strong>All Sensors:</strong><br><code>GET /api/sensors</code></div>
+                    <div class="endpoint"><strong>WebSocket:</strong><br><code>WS /ws</code></div>
                 </div>
             </div>
         </div>
 
         <script>
-            document.addEventListener('DOMContentLoaded', (event) => {
-                const socket = io();
+            let socket = null;
+            let reconnectAttempts = 0;
+            const maxReconnects = 5;
+
+            function connect() {
                 const statusDiv = document.getElementById('status');
                 const dataContainer = document.getElementById('data-container');
+                
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                
+                socket = new WebSocket(wsUrl);
 
-                socket.on('connect', () => {
-                    console.log('Successfully connected to the streaming server!');
-                    statusDiv.textContent = 'Status: Connected (Streaming)';
+                socket.onopen = function() {
+                    console.log('Connected to WebSocket');
+                    statusDiv.textContent = 'Status: Connected (Real-time Streaming)';
                     statusDiv.className = 'connected';
-                });
+                    reconnectAttempts = 0;
+                };
 
-                socket.on('disconnect', () => {
-                    console.log('Disconnected from the streaming server.');
+                socket.onclose = function() {
+                    console.log('WebSocket disconnected');
                     statusDiv.textContent = 'Status: Disconnected';
                     statusDiv.className = 'disconnected';
-                });
+                    
+                    if (reconnectAttempts < maxReconnects) {
+                        reconnectAttempts++;
+                        setTimeout(connect, 3000);
+                    }
+                };
 
-                socket.on('new_data', (msg) => {
-                    console.log('Received streaming data:', msg.data);
-                    const formattedData = JSON.stringify(msg.data, null, 4);
-                    dataContainer.innerHTML = `<pre>${formattedData}</pre>`;
-                });
-            });
+                socket.onmessage = function(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+                        
+                        if (message.type === 'sensor_data' && message.data) {
+                            const formattedData = JSON.stringify(message.data, null, 2);
+                            dataContainer.innerHTML = `<pre>${formattedData}</pre>`;
+                        }
+                    } catch (error) {
+                        console.error('Error parsing message:', error);
+                    }
+                };
+
+                socket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+            }
+
+            document.addEventListener('DOMContentLoaded', connect);
+            
+            // Keep-alive ping
+            setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send('ping');
+                }
+            }, 30000);
         </script>
     </body>
     </html>
     """)
 
-# --- SocketIO Event Handlers ---
-@socketio.on('connect')
-def handle_connect():
-    """Called when a new client connects."""
-    global thread
-    print('Client connected to streaming server')
+# --- FastAPI Event Handlers ---
+@app.on_event("startup")
+async def startup_event():
+    """Start background streaming when FastAPI starts."""
+    global simulation_thread, MAX_HISTORICAL_READINGS, historical_readings
+    print("FastAPI startup: Starting efficient batch-processing sensor simulation...")
     
-    if thread is None or not thread.is_alive():
-        print("Starting background thread for streaming data simulation.")
-        thread = Thread(target=simulate_sensor_stream)
-        thread.daemon = True
-        thread.start()
+    # Optimized memory usage with proper batch processing
+    if 'PORT' in os.environ:
+        print(f"Heroku mode: Processing in batches of 500 rows")
+        print(f"Historical readings limited to {MAX_HISTORICAL_READINGS}")
+        
+        # Force immediate garbage collection
+        gc.collect()
+    
+    # Start simulation thread
+    if simulation_thread is None or not simulation_thread.is_alive():
+        simulation_thread = Thread(target=simulate_sensor_data, daemon=True)
+        simulation_thread.start()
+        print("Background simulation thread started with efficient batch processing!")
 
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Called when a client disconnects."""
-    print('Client disconnected from streaming server')
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean shutdown."""
+    print("Shutting down sensor simulation...")
+    thread_stop_event.set()
+    if simulation_thread and simulation_thread.is_alive():
+        simulation_thread.join(timeout=3)
 
-# --- Combined Mode Functions (same as before) ---
+# --- Client functionality ---
+class SensorAPIClient:
+    def __init__(self, base_url=API_BASE_URL):
+        self.base_url = base_url
+        
+    def check_api_status(self):
+        try:
+            response = requests.get(f"{self.base_url}/status", timeout=5)
+            if response.status_code == 200:
+                print("FastAPI is available!")
+                print(json.dumps(response.json(), indent=2))
+                return True
+            return False
+        except requests.exceptions.RequestException as e:
+            print(f"Failed to connect: {e}")
+            return False
+
+    def get_current_reading(self):
+        try:
+            response = requests.get(f"{self.base_url}/current", timeout=5)
+            if response.status_code == 200:
+                print("\nCurrent Reading:")
+                print(json.dumps(response.json(), indent=2))
+                return response.json()
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
+            return None
+
+    def run_demo(self):
+        print("FastAPI Sensor Data API Demo")
+        print("=" * 40)
+        
+        if not self.check_api_status():
+            print("API not available!")
+            return False
+        
+        self.get_current_reading()
+        return True
+
+# --- Server functions ---
 def run_server(host=SERVER_HOST, port=SERVER_PORT):
-    """Run the Flask-SocketIO server."""
-    print("Starting Flask-SocketIO streaming server with API endpoints...")
-    print(f"Navigate to http://{host}:{port} in your browser.")
-    print("\nStreaming Configuration:")
-    print(f"  Chunk size: {CHUNK_SIZE} rows")
-    print(f"  Data interval: {DATA_INTERVAL_SECONDS} seconds")
-    print("\nAPI Endpoints available:")
-    print("  GET /api/current - Get current sensor reading")
-    print("  GET /api/sensor/<sensor_name> - Get specific sensor value")
-    print("  GET /api/latest/<count> - Get latest N readings")
-    print("  GET /api/all - Get all historical readings")
-    print("  GET /api/sensors - Get available sensors")
-    print("  GET /api/status - Get API status and streaming info")
-    
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    print("Starting memory-optimized FastAPI server...")
+    print(f"Navigate to http://{host}:{port}")
+    print(f"API Documentation: http://{host}:{port}/docs")
+    uvicorn.run(app, host='0.0.0.0', port=port, log_level="info")
 
-def run_client(api_base_url=API_BASE_URL, sensor_name=None):
-    """Run the client to access the API."""
-    print("Running API client for streaming server...")
+def run_client(api_base_url=API_BASE_URL):
+    time.sleep(3)  # Wait for server
     client = SensorAPIClient(api_base_url)
-    
-    if sensor_name:
-        # Wait a bit for server to start if running in combined mode
-        print("Waiting 3 seconds for server to start...")
-        time.sleep(3)
-        client.monitor_sensor_continuously(sensor_name, interval=10)
-    else:
-        # Wait a bit for server to start if running in combined mode
-        print("Waiting 3 seconds for server to start...")
-        time.sleep(3)
-        client.run_client_demo()
+    client.run_demo()
 
 def run_both(host=SERVER_HOST, port=SERVER_PORT, api_base_url=API_BASE_URL):
-    """Run both server and client in the same process."""
-    print("Starting integrated streaming server and client...")
+    print("Starting integrated FastAPI server and client...")
     
-    # Start server in a separate thread
-    server_thread = Thread(target=lambda: run_server(host=host, port=port))
-    server_thread.daemon = True
+    server_thread = Thread(target=lambda: run_server(host=host, port=port), daemon=True)
     server_thread.start()
     
-    # Wait a moment for server to start
-    print("Waiting for streaming server to initialize...")
     time.sleep(5)
     
-    # Run client demo
     try:
         client = SensorAPIClient(api_base_url)
         if client.check_api_status():
-            print("\nBoth streaming server and client are running successfully!")
-            print("Running client demo...")
-            client.run_client_demo()
+            print("\nServer and client running successfully!")
+            client.run_demo()
             
-            # Keep both running
-            print("\nStreaming server continues running. Press Ctrl+C to stop both.")
+            print("\nServer continues running. Press Ctrl+C to stop.")
             while True:
                 time.sleep(1)
-        else:
-            print("Failed to connect to streaming server")
     except KeyboardInterrupt:
-        print("\nStopping streaming server and client...")
+        print("\nStopping...")
         thread_stop_event.set()
 
-# --- Main Execution ---
+# --- Main execution ---
 def main():
-    """Main function with command line argument parsing."""
-    global CHUNK_SIZE  # Declare global at the top to avoid syntax error
+    global DATA_INTERVAL_SECONDS
     
-    parser = argparse.ArgumentParser(description='Memory-Optimized Streaming Sensor Data Simulation with API')
-    parser.add_argument('--mode', choices=['server', 'client', 'both', 'monitor'], 
-                       default='both', help='Run mode (default: both)')
-    parser.add_argument('--sensor', type=str, 
-                       help='Sensor name to monitor (used with --mode monitor)')
-    parser.add_argument('--host', type=str, default=SERVER_HOST,
-                       help=f'Server host (default: {SERVER_HOST})')
-    parser.add_argument('--port', type=int, default=None,
-                       help=f'Server port (default: {SERVER_PORT} or PORT env var)')
-    parser.add_argument('--chunk-size', type=int, default=CHUNK_SIZE,
-                       help=f'Chunk size for streaming (default: {CHUNK_SIZE})')
+    parser = argparse.ArgumentParser(description='Memory-Optimized FastAPI Sensor Data Streaming')
+    parser.add_argument('--mode', choices=['server', 'client', 'both'], default='both')
+    parser.add_argument('--host', type=str, default=SERVER_HOST)
+    parser.add_argument('--port', type=int, default=None)
+    parser.add_argument('--interval', type=int, default=DATA_INTERVAL_SECONDS)
     
     args = parser.parse_args()
     
-    # Update configuration - prioritize environment variable for Heroku
     server_host = args.host
-    if args.port is not None:
-        server_port = args.port
-    else:
-        # Use PORT environment variable if available (for Heroku), otherwise default
-        server_port = int(os.environ.get('PORT', SERVER_PORT))
-    
-    # Update chunk size if specified
-    CHUNK_SIZE = args.chunk_size
+    server_port = args.port if args.port else int(os.environ.get('PORT', SERVER_PORT))
+    DATA_INTERVAL_SECONDS = args.interval
     
     api_base_url = f"http://{server_host}:{server_port}/api"
     
-    print("=" * 70)
-    print("CHOLESTEROL-LOWERING DRUG MANUFACTURING SENSOR DATA STREAMING API")
-    print("=" * 70)
-    print(f"Memory-Optimized Version | Chunk Size: {CHUNK_SIZE} rows")
+    print("=" * 60)
+    print("CHOLESTEROL DRUG MANUFACTURING SENSOR DATA API")
+    print("=" * 60)
+    print(f"Memory-Optimized FastAPI | Interval: {DATA_INTERVAL_SECONDS}s")
     
     if args.mode == 'server':
-        print("Running in STREAMING SERVER mode only")
         run_server(host=server_host, port=server_port)
     elif args.mode == 'client':
-        print("Running in CLIENT mode only")
         run_client(api_base_url=api_base_url)
-    elif args.mode == 'monitor':
-        if not args.sensor:
-            print("Error: --sensor argument required for monitor mode")
-            sys.exit(1)
-        print(f"Running in MONITOR mode for sensor: {args.sensor}")
-        run_client(api_base_url=api_base_url, sensor_name=args.sensor)
-    else:  # both
-        print("Running in COMBINED mode (streaming server + client)")
+    else:
         run_both(host=server_host, port=server_port, api_base_url=api_base_url)
 
 if __name__ == '__main__':
