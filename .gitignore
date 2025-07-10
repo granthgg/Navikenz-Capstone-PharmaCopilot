@@ -2,3 +2,4 @@ d3rlpy_logs
 .ipynb_checkpoints
 runs
 __pycache__
+node_modules
