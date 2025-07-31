@@ -8,6 +8,8 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server.js",
     "client": "cd client && npm start",
+    "start-system": "node start-system.js",
+    "test-apis": "node -e \"require('./start-system.js').testConnectivity()\"",
     "heroku-postbuild": "cd client && npm install && npm run build"
   },
   "dependencies": {

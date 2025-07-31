@@ -17,11 +17,11 @@ from typing import List
 import uvicorn
 
 # --- Configuration ---
-DATA_FILE_PATH = 'processed_timeseries.parquet'
+DATA_FILE_PATH = 'timeseries_small_data.csv'
 # The time interval in seconds between sending data points.
 DATA_INTERVAL_SECONDS = 10
-# Maximum number of historical readings to keep in memory (ultra-minimal for Heroku)
-MAX_HISTORICAL_READINGS = 1000 if 'PORT' in os.environ else 2000  # Extremely small for Heroku
+# Maximum number of historical readings to keep in memory
+MAX_HISTORICAL_READINGS = 1000
 # Server configuration (will be updated by command line args)
 SERVER_HOST = '127.0.0.1'
 SERVER_PORT = 5000
@@ -30,7 +30,7 @@ API_BASE_URL = f"http://{SERVER_HOST}:{SERVER_PORT}/api"
 # --- FastAPI Initialization ---
 app = FastAPI(
     title="Cholesterol-Lowering Drug Manufacturing Sensor Data API",
-    description="Memory-efficient real-time streaming from parquet sensor data files",
+    description="Real-time streaming from CSV sensor data files",
     version="2.1.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -48,275 +48,109 @@ app.add_middleware(
 # --- Global variables for the simulation ---
 simulation_thread = None
 thread_stop_event = Event()
+restart_event = Event()
 current_reading = {}
 current_reading_lock = Lock()
 historical_readings = deque(maxlen=MAX_HISTORICAL_READINGS)
 historical_readings_lock = Lock()
 data_loaded = False
 data_columns = []
+all_data = None
+current_data_index = 0
+data_lock = Lock()
 
 # --- WebSocket connection management ---
 active_connections: List[WebSocket] = []
 
-class MemoryEfficientDataStreamer:
-    """Ultra memory-efficient data streamer that loads data in small batches."""
+class CSVDataLoader:
+    """Simple CSV data loader that loads all data at startup."""
     
     def __init__(self, file_path):
         self.file_path = file_path
-        self.current_row_index = 0
-        self.current_batch_index = 0
-        self.current_batch = None
-        self.data_columns = []
-        self.is_parquet = file_path.endswith('.parquet')
+        self.data = None
+        self.columns = []
         self.initialized = False
+        self.current_index = 0
         
-        # Batch configuration - medium size for efficient processing
-        self.is_heroku = 'PORT' in os.environ
-        self.batch_size = 500 if self.is_heroku else 2000  # 500 rows per batch for Heroku
-        self.total_file_rows = 0
-        self.current_file_batch = 0
-        
-        # Initialize with minimal memory footprint
-        self._initialize()
+        # Initialize data
+        self._load_data()
     
-    def _initialize(self):
-        """Initialize with minimal memory usage - only get schema, no data."""
+    def _load_data(self):
+        """Load all CSV data at startup."""
         try:
-            print(f"Initializing efficient batch streamer for: {self.file_path}")
+            print(f"Loading CSV data from: {self.file_path}")
             
             if not os.path.exists(self.file_path):
-                print(f"Error: Data file {self.file_path} not found. Cannot proceed without real data.")
+                print(f"Error: Data file {self.file_path} not found.")
                 self.initialized = False
                 return
             
-            if self.is_parquet:
-                try:
-                    # Only read schema and first tiny batch to get column info
-                    if self.is_heroku:
-                        # For Heroku: Load full batch size efficiently
-                        try:
-                            # Try to read just schema first using pyarrow
-                            import pyarrow.parquet as pq
-                            parquet_file = pq.ParquetFile(self.file_path)
-                            self.data_columns = parquet_file.schema.names
-                            self.total_file_rows = parquet_file.metadata.num_rows
-                            
-                            # Load first batch efficiently
-                            self._load_next_batch()
-                            
-                            print(f"Heroku mode: PyArrow batch loading - {len(self.current_batch)} rows, {len(self.data_columns)} columns")
-                            print(f"Total file rows: {self.total_file_rows}")
-                            
-                        except ImportError:
-                            # Fallback if pyarrow fails
-                            first_batch = pd.read_parquet(self.file_path, engine='fastparquet')
-                            self.data_columns = first_batch.columns.tolist()
-                            self.total_file_rows = len(first_batch)
-                            
-                            # Take first batch_size rows
-                            batch_size = min(self.batch_size, len(first_batch))
-                            self.current_batch = first_batch.head(batch_size).copy()
-                            
-                            print(f"Heroku fallback mode: {batch_size} rows, {len(self.data_columns)} columns")
-                            
-                            del first_batch
-                            gc.collect()
-                        
-                    else:
-                        # Local development: Still be very careful
-                        try:
-                            # Try to get just the schema first
-                            import pyarrow.parquet as pq
-                            parquet_file = pq.ParquetFile(self.file_path)
-                            self.data_columns = parquet_file.schema.names
-                            self.total_file_rows = parquet_file.metadata.num_rows
-                            
-                            # Load first small batch
-                            self._load_next_batch()
-                            
-                            print(f"Local mode: Schema-first loading - Total: {self.total_file_rows} rows, {len(self.data_columns)} columns")
-                            
-                        except ImportError:
-                            # Fallback if pyarrow not available
-                            first_batch = pd.read_parquet(self.file_path, engine='fastparquet')
-                            self.data_columns = first_batch.columns.tolist()
-                            self.total_file_rows = len(first_batch)
-                            
-                            # Keep only first batch
-                            self.current_batch = first_batch.head(self.batch_size).copy()
-                            del first_batch
-                            gc.collect()
-                        
-                except Exception as e:
-                    print(f"Error with parquet loading: {e}")
-                    print("Cannot proceed without valid parquet data.")
-                    self.initialized = False
-                    return
-            else:
-                # CSV handling - ultra minimal
-                try:
-                    # Read just a few rows to get schema
-                    schema_sample = pd.read_csv(self.file_path, delimiter=';', nrows=5)
-                    self.data_columns = schema_sample.columns.tolist()
-                    
-                    # Load first batch with proper size
-                    self.current_batch = pd.read_csv(self.file_path, delimiter=';', nrows=self.batch_size)
-                    # Estimate total rows (this is rough, but sufficient for cycling)
-                    self.total_file_rows = self.batch_size * 100  # Conservative estimate
-                    
-                    del schema_sample
-                    gc.collect()
-                    
-                except Exception as e:
-                    print(f"Error loading CSV: {e}")
-                    print("Cannot proceed without valid CSV data.")
-                    self.initialized = False
-                    return
+            # Load all CSV data with semicolon delimiter
+            self.data = pd.read_csv(self.file_path, delimiter=';')
+            self.columns = self.data.columns.tolist()
             
             # Process timestamp if exists
-            if self.current_batch is not None and 'timestamp' in self.current_batch.columns:
-                self.current_batch['timestamp'] = pd.to_datetime(self.current_batch['timestamp'], errors='coerce')
+            if 'timestamp' in self.data.columns:
+                self.data['timestamp'] = pd.to_datetime(self.data['timestamp'], errors='coerce')
+            
+            print(f"Successfully loaded {len(self.data)} rows with {len(self.columns)} columns")
+            print(f"Columns: {self.columns}")
             
             self.initialized = True
-            batch_rows = len(self.current_batch) if self.current_batch is not None else 0
-            print(f"Efficient batch streamer initialized: {batch_rows} rows in current batch")
-            print(f"Batch size: {self.batch_size} rows")
-            print(f"Environment: {'Heroku (batch processing)' if self.is_heroku else 'local development'}")
             
         except Exception as e:
-            print(f"Error initializing data streamer: {e}")
-            print("Failed to initialize with real data. Application cannot proceed.")
+            print(f"Error loading CSV data: {e}")
             self.initialized = False
     
-    def _load_next_batch(self):
-        """Load the next batch of data from file."""
-        try:
-            if self.is_parquet:
-                # Calculate skip rows for this batch
-                skip_rows = self.current_file_batch * self.batch_size
-                
-                if skip_rows >= self.total_file_rows:
-                    # Reset to beginning of file and continue loading new batches
-                    self.current_file_batch = 0
-                    skip_rows = 0
-                    print(f"Reached end of file, cycling back to beginning. Loading next batch from row {skip_rows}")
-                
-                # Load next batch
-                try:
-                    import pyarrow.parquet as pq
-                    parquet_file = pq.ParquetFile(self.file_path)
-                    
-                    # Read specific row range
-                    row_groups = []
-                    rows_read = 0
-                    target_rows = self.batch_size
-                    
-                    for i in range(parquet_file.num_row_groups):
-                        rg = parquet_file.read_row_group(i)
-                        if rows_read + len(rg) > skip_rows and rows_read < skip_rows + target_rows:
-                            row_groups.append(rg)
-                            rows_read += len(rg)
-                            if rows_read >= skip_rows + target_rows:
-                                break
-                    
-                    if row_groups:
-                        batch_df = pd.concat([rg.to_pandas() for rg in row_groups], ignore_index=True)
-                        
-                        # Slice to exact range needed
-                        start_idx = max(0, skip_rows - (rows_read - len(batch_df)))
-                        end_idx = start_idx + self.batch_size
-                        self.current_batch = batch_df.iloc[start_idx:end_idx].copy()
-                        
-                        del batch_df
-                        gc.collect()
-                        
-                except ImportError:
-                    # Fallback without pyarrow
-                    # For very large files, this is not ideal, but works for smaller files
-                    full_df = pd.read_parquet(self.file_path)
-                    end_row = min(skip_rows + self.batch_size, len(full_df))
-                    self.current_batch = full_df.iloc[skip_rows:end_row].copy()
-                    del full_df
-                    gc.collect()
-                
-                self.current_file_batch += 1
-                self.current_row_index = 0
-                
-                print(f"Loaded parquet batch {self.current_file_batch}: {len(self.current_batch)} rows (rows {skip_rows}-{skip_rows + len(self.current_batch) - 1})")
-                
-            else:
-                # CSV batch loading
-                skip_rows = self.current_file_batch * self.batch_size
-                self.current_batch = pd.read_csv(
-                    self.file_path, 
-                    delimiter=';', 
-                    skiprows=range(1, skip_rows + 1), 
-                    nrows=self.batch_size
-                )
-                self.current_file_batch += 1
-                self.current_row_index = 0
-                
-                print(f"Loaded CSV batch {self.current_file_batch}: {len(self.current_batch)} rows (rows {skip_rows}-{skip_rows + len(self.current_batch) - 1})")
-                
-        except Exception as e:
-            print(f"Error loading next batch: {e}")
-            # If we can't load next batch, reset to beginning of file
-            if self.current_batch is None or len(self.current_batch) == 0:
-                print("Failed to load any data. Resetting to beginning of file.")
-                self.current_file_batch = 0
-                self.current_row_index = 0
-    
-
-    
     def get_next_row(self):
-        """Get the next data row, loading new batches as needed."""
-        if not self.initialized:
+        """Get the next data row, cycling through all data."""
+        if not self.initialized or self.data is None:
             return None
         
-        # Check if we need to load next batch
-        if (self.current_batch is None or 
-            self.current_row_index >= len(self.current_batch)):
-            
-            # Load next batch for all environments
-            self._load_next_batch()
-            print(f"Loaded new batch {self.current_file_batch}: {len(self.current_batch) if self.current_batch is not None else 0} rows")
+        if self.current_index >= len(self.data):
+            self.current_index = 0  # Reset to start
+            print("Reached end of data, cycling back to beginning")
         
-        if self.current_batch is None or len(self.current_batch) == 0:
-            return None
-        
-        # Get current row
-        if self.current_row_index >= len(self.current_batch):
-            self.current_row_index = 0
-        
-        row = self.current_batch.iloc[self.current_row_index]
-        self.current_row_index += 1
+        row = self.data.iloc[self.current_index]
+        self.current_index += 1
         
         return row
     
+    def restart_stream(self):
+        """Restart streaming from the beginning."""
+        self.current_index = 0
+        print("Stream restarted from beginning")
+    
     def get_columns(self):
         """Get column names."""
-        return self.data_columns
+        return self.columns
+    
+    def get_total_rows(self):
+        """Get total number of rows."""
+        return len(self.data) if self.data is not None else 0
 
-# Global data streamer instance
-data_streamer = None
+# Global data loader instance
+data_loader = None
 
 # --- Data management functions ---
-def initialize_data_streamer():
-    """Initialize the memory-efficient data streamer."""
-    global data_streamer, data_loaded, data_columns
+def initialize_data_loader():
+    """Initialize the CSV data loader."""
+    global data_loader, data_loaded, data_columns, all_data
     
     try:
-        data_streamer = MemoryEfficientDataStreamer(DATA_FILE_PATH)
-        if data_streamer.initialized:
-            data_columns = data_streamer.get_columns()
+        data_loader = CSVDataLoader(DATA_FILE_PATH)
+        if data_loader.initialized:
+            data_columns = data_loader.get_columns()
+            all_data = data_loader.data
             data_loaded = True
-            print("Data streamer initialized successfully")
+            print("CSV data loader initialized successfully")
+            print(f"Total rows available: {data_loader.get_total_rows()}")
             return True
         else:
-            print("Failed to initialize data streamer")
+            print("Failed to initialize CSV data loader")
             return False
     except Exception as e:
-        print(f"Error initializing data streamer: {e}")
+        print(f"Error initializing CSV data loader: {e}")
         return False
 
 def update_current_reading(data_point):
@@ -332,23 +166,43 @@ def update_current_reading(data_point):
 
 def simulate_sensor_data():
     """Background thread function for continuous sensor data simulation."""
-    print("Starting memory-efficient sensor data simulation...")
+    global current_data_index
     
-    # Initialize data streamer - only proceed with real data
-    if not initialize_data_streamer():
-        print("Failed to initialize data streamer with real data. Stopping simulation.")
-        print("Make sure the parquet file exists and is accessible.")
+    print("Starting sensor data simulation...")
+    
+    # Initialize data loader
+    if not initialize_data_loader():
+        print("Failed to initialize data loader. Stopping simulation.")
         return
     
     print(f"Simulation started. Updating every {DATA_INTERVAL_SECONDS} seconds.")
     
     while not thread_stop_event.is_set():
         try:
+            # Check if restart was requested
+            if restart_event.is_set():
+                print("Restart requested - resetting to beginning of data")
+                data_loader.restart_stream()
+                with historical_readings_lock:
+                    historical_readings.clear()
+                restart_event.clear()
+                
+                # Broadcast restart notification
+                if active_connections:
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    message = {"type": "stream_restarted", "message": "Data stream restarted from beginning"}
+                    loop.run_until_complete(broadcast_to_websockets(message))
+            
             # Get next data point
-            row = data_streamer.get_next_row()
+            row = data_loader.get_next_row()
             
             if row is not None:
-                # Convert to dictionary with memory optimization
+                # Convert to dictionary
                 data_point = row.to_dict()
                 
                 # Handle timestamp formatting
@@ -358,7 +212,7 @@ def simulate_sensor_data():
                     else:
                         data_point['timestamp'] = str(data_point['timestamp'])
                 
-                # Convert any NaN values to None and optimize data types for memory
+                # Convert any NaN values to None and optimize data types
                 optimized_point = {}
                 for key, value in data_point.items():
                     if pd.isna(value):
@@ -380,6 +234,10 @@ def simulate_sensor_data():
                 # Update current reading
                 update_current_reading(data_point)
                 
+                # Store current index for tracking
+                with data_lock:
+                    current_data_index = data_loader.current_index
+                
                 # Broadcast to WebSocket clients
                 if active_connections:
                     try:
@@ -391,26 +249,19 @@ def simulate_sensor_data():
                             asyncio.set_event_loop(loop)
                         
                         # Broadcast the data
-                        message = {"type": "sensor_data", "data": data_point}
+                        message = {
+                            "type": "sensor_data", 
+                            "data": data_point,
+                            "index": data_loader.current_index - 1,
+                            "total": data_loader.get_total_rows()
+                        }
                         loop.run_until_complete(broadcast_to_websockets(message))
                     except Exception as e:
                         print(f"Error broadcasting to WebSocket clients: {e}")
                 
-                print(f"Updated sensor data: {data_point.get('timestamp', 'N/A')} - {len(data_point)} fields")
+                print(f"Updated sensor data: {data_point.get('timestamp', 'N/A')} - Row {data_loader.current_index - 1}/{data_loader.get_total_rows()}")
             else:
-                print("No data available from streamer")
-            
-            # Force aggressive garbage collection for memory efficiency
-            if hasattr(simulate_sensor_data, 'gc_counter'):
-                simulate_sensor_data.gc_counter += 1
-            else:
-                simulate_sensor_data.gc_counter = 1
-            
-            # More frequent garbage collection on Heroku
-            gc_frequency = 3 if 'PORT' in os.environ else 10
-            if simulate_sensor_data.gc_counter % gc_frequency == 0:
-                gc.collect()
-                print(f"Garbage collection performed (cycle {simulate_sensor_data.gc_counter})")
+                print("No data available from loader")
             
             # Wait for the specified interval
             time.sleep(DATA_INTERVAL_SECONDS)
@@ -443,10 +294,8 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "cholesterol-sensor-api",
-        "version": "2.1.0-real-data-only",
-        "memory_optimized": True,
-        "real_data_only": True,
-        "data_source": "parquet_files",
+        "version": "2.1.0-csv-streaming",
+        "data_source": "csv_file",
         "timestamp": datetime.now().isoformat()
     }
 
@@ -459,26 +308,16 @@ async def api_status():
     with historical_readings_lock:
         historical_count = len(historical_readings)
     
-    # Detailed memory usage info
-    try:
-        import psutil
-        process = psutil.Process(os.getpid())
-        memory_info = process.memory_info()
-        memory_mb = round(memory_info.rss / 1024 / 1024, 2)
-        memory_percent = process.memory_percent()
-    except ImportError:
-        memory_mb = 0
-        memory_percent = 0
+    with data_lock:
+        current_index = current_data_index
     
-    # Get data streamer info
-    streamer_info = {}
-    if data_streamer:
-        current_batch_size = len(data_streamer.current_batch) if data_streamer.current_batch is not None else 0
-        streamer_info = {
-            'current_batch_size': current_batch_size,
-            'batch_size_limit': data_streamer.batch_size,
-            'current_file_batch': data_streamer.current_file_batch,
-            'total_estimated_rows': data_streamer.total_file_rows
+    # Get data loader info
+    loader_info = {}
+    if data_loader:
+        loader_info = {
+            'total_rows': data_loader.get_total_rows(),
+            'current_index': current_index,
+            'progress_percentage': round((current_index / data_loader.get_total_rows()) * 100, 2) if data_loader.get_total_rows() > 0 else 0
         }
     
     return {
@@ -491,12 +330,7 @@ async def api_status():
         'max_historical_readings': MAX_HISTORICAL_READINGS,
         'simulation_running': simulation_thread is not None and simulation_thread.is_alive(),
         'websocket_connections': len(active_connections),
-        'memory_usage_mb': memory_mb,
-        'memory_percent': memory_percent,
-        'memory_optimized': True,
-        'ultra_minimal_mode': True,
-        'heroku_mode': 'PORT' in os.environ,
-        'streamer_info': streamer_info,
+        'loader_info': loader_info,
         'timestamp': datetime.now().isoformat()
     }
 
@@ -506,23 +340,40 @@ async def api_current():
     with current_reading_lock:
         if not current_reading:
             if not data_loaded:
-                return {"error": "No current reading available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+                return {"error": "No current reading available", "message": "CSV data file not loaded. Check if file exists and is accessible."}
             else:
-                return {"error": "No current reading available", "message": "Wait for the simulation to start processing real data"}
+                return {"error": "No current reading available", "message": "Wait for the simulation to start processing data"}
         
-        return {"status": "success", "data": current_reading.copy(), "timestamp": datetime.now().isoformat()}
+        with data_lock:
+            index_info = {
+                "current_index": current_data_index,
+                "total_rows": data_loader.get_total_rows() if data_loader else 0
+            }
+        
+        return {
+            "status": "success", 
+            "data": current_reading.copy(), 
+            "index_info": index_info,
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/api/all")
 async def api_all():
-    """Get all historical sensor readings."""
+    """Get all historical sensor readings (last 1000)."""
     with historical_readings_lock:
         if not historical_readings:
             if not data_loaded:
-                return {"error": "No historical readings available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+                return {"error": "No historical readings available", "message": "CSV data file not loaded. Check if file exists and is accessible."}
             else:
-                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data from real parquet file"}
+                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data"}
         
-        return {"status": "success", "count": len(historical_readings), "data": list(historical_readings), "timestamp": datetime.now().isoformat()}
+        return {
+            "status": "success", 
+            "count": len(historical_readings), 
+            "data": list(historical_readings), 
+            "max_capacity": MAX_HISTORICAL_READINGS,
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/api/latest/{count}")
 async def api_latest(count: int):
@@ -531,18 +382,24 @@ async def api_latest(count: int):
         return {"error": "Count must be a positive integer"}
     
     # Limit count for memory efficiency
-    count = min(count, 20)
+    count = min(count, MAX_HISTORICAL_READINGS)
     
     with historical_readings_lock:
         if not historical_readings:
             if not data_loaded:
-                return {"error": "No historical readings available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+                return {"error": "No historical readings available", "message": "CSV data file not loaded. Check if file exists and is accessible."}
             else:
-                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data from real parquet file"}
+                return {"error": "No historical readings available", "message": "Wait for the simulation to generate data"}
         
         latest_readings = list(historical_readings)[-count:]
         
-        return {"status": "success", "requested_count": count, "returned_count": len(latest_readings), "data": latest_readings, "timestamp": datetime.now().isoformat()}
+        return {
+            "status": "success", 
+            "requested_count": count, 
+            "returned_count": len(latest_readings), 
+            "data": latest_readings, 
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/api/sensor/{sensor_name}")
 async def api_sensor_value(sensor_name: str):
@@ -550,15 +407,20 @@ async def api_sensor_value(sensor_name: str):
     with current_reading_lock:
         if not current_reading:
             if not data_loaded:
-                return {"error": "No current reading available", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+                return {"error": "No current reading available", "message": "CSV data file not loaded. Check if file exists and is accessible."}
             else:
-                return {"error": "No current reading available", "message": "Wait for the simulation to start processing real data"}
+                return {"error": "No current reading available", "message": "Wait for the simulation to start processing data"}
         
         if sensor_name not in current_reading:
             available_sensors = list(current_reading.keys())
             return {"error": f'Sensor "{sensor_name}" not found', "available_sensors": available_sensors}
         
-        return {"status": "success", "sensor_name": sensor_name, "value": current_reading[sensor_name], "timestamp": datetime.now().isoformat()}
+        return {
+            "status": "success", 
+            "sensor_name": sensor_name, 
+            "value": current_reading[sensor_name], 
+            "timestamp": datetime.now().isoformat()
+        }
 
 @app.get("/api/sensors")
 async def api_available_sensors():
@@ -566,21 +428,30 @@ async def api_available_sensors():
     with current_reading_lock:
         if not current_reading:
             if data_loaded:
-                return {"status": "success", "available_sensors": data_columns, "message": "Real data loaded but no current reading yet"}
+                return {"status": "success", "available_sensors": data_columns, "message": "Data loaded but no current reading yet"}
             else:
-                return {"error": "No real data loaded", "message": "Real data file not loaded. Check if parquet file exists and is accessible."}
+                return {"error": "No data loaded", "message": "CSV data file not loaded. Check if file exists and is accessible."}
         
-        return {"status": "success", "available_sensors": list(current_reading.keys()), "timestamp": datetime.now().isoformat()}
+        return {
+            "status": "success", 
+            "available_sensors": list(current_reading.keys()), 
+            "timestamp": datetime.now().isoformat()
+        }
 
-# --- Legacy Socket.IO Compatibility ---
-@app.get("/socket.io/")
-async def socket_io_fallback():
-    """Fallback for old Socket.IO requests."""
+@app.post("/api/restart")
+async def api_restart():
+    """Restart the data stream from the beginning."""
+    global restart_event
+    
+    if not data_loaded:
+        return {"error": "No data loaded", "message": "CSV data file not loaded. Cannot restart stream."}
+    
+    restart_event.set()
+    
     return {
-        "error": "Socket.IO is no longer supported",
-        "message": "This API now uses native WebSockets. Please connect to /ws endpoint instead.",
-        "websocket_endpoint": "/ws",
-        "migration_info": "The API has been upgraded to FastAPI with native WebSocket support."
+        "status": "success",
+        "message": "Stream restart requested. Data will restart from beginning.",
+        "timestamp": datetime.now().isoformat()
     }
 
 # --- WebSocket Endpoints ---
@@ -593,10 +464,24 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # Keep connection alive
+            # Keep connection alive and handle messages
             data = await websocket.receive_text()
-            # Send keep-alive response
-            await websocket.send_json({"type": "keepalive", "message": "Connection active", "timestamp": datetime.now().isoformat()})
+            
+            # Handle restart command
+            if data == "restart":
+                restart_event.set()
+                await websocket.send_json({
+                    "type": "restart_acknowledged", 
+                    "message": "Stream restart requested", 
+                    "timestamp": datetime.now().isoformat()
+                })
+            else:
+                # Send keep-alive response
+                await websocket.send_json({
+                    "type": "keepalive", 
+                    "message": "Connection active", 
+                    "timestamp": datetime.now().isoformat()
+                })
     except WebSocketDisconnect:
         print("WebSocket disconnected")
         if websocket in active_connections:
@@ -616,18 +501,23 @@ async def root():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Cholesterol-Lowering Drug Manufacturing Live Sensor Data (Memory Optimized)</title>
+        <title>Cholesterol-Lowering Drug Manufacturing Live Sensor Data</title>
         <style>
             body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; margin: 0; padding: 2rem; }
             .container { max-width: 1200px; margin: auto; background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
             h1, h2 { color: #0b57d0; border-bottom: 2px solid #e7e9ec; padding-bottom: 0.5rem; }
             .badge { color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem; margin-left: 0.5rem; }
             .streaming-badge { background-color: #1e8e3e; }
-            .memory-badge { background-color: #ff6b35; }
+            .csv-badge { background-color: #ff6b35; }
             #status { font-weight: bold; margin-bottom: 1rem; padding: 0.75rem; border-radius: 8px; }
             .connected { color: #1e8e3e; background-color: #e6f4ea; }
             .disconnected { color: #d93025; background-color: #fce8e6; }
             #data-container { margin-top: 1.5rem; background: #f8f9fa; padding: 1.5rem; border-radius: 8px; border: 1px solid #e0e0e0; min-height: 200px; font-family: monospace; overflow-y: auto; max-height: 400px; }
+            .controls { margin: 1rem 0; }
+            .restart-btn { background: #d93025; color: white; padding: 0.5rem 1rem; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; }
+            .restart-btn:hover { background: #b71c1c; }
+            .restart-btn:disabled { background: #ccc; cursor: not-allowed; }
+            .progress-info { background: #e3f2fd; padding: 0.5rem; border-radius: 4px; margin: 0.5rem 0; }
             .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem; }
             .endpoint { background: #fff; padding: 1rem; margin: 0.5rem 0; border-radius: 6px; border-left: 4px solid #0b57d0; }
             .endpoint code { background: #f1f3f4; padding: 0.2rem 0.4rem; border-radius: 4px; }
@@ -637,27 +527,33 @@ async def root():
     </head>
     <body>
         <div class="container">
-            <h1>Cholesterol Drug Manufacturing Live Sensor Data<span class="streaming-badge badge">REAL DATA</span><span class="memory-badge badge">MEMORY OPTIMIZED</span></h1>
-            <p><strong>Ultra memory-efficient FastAPI streaming from real parquet data</strong> - Optimized for Heroku deployment</p>
+            <h1>Cholesterol Drug Manufacturing Live Sensor Data<span class="streaming-badge badge">LIVE STREAMING</span><span class="csv-badge badge">CSV DATA</span></h1>
+            <p><strong>Real-time FastAPI streaming from CSV sensor data</strong> - Complete data loaded and streaming</p>
             <p>
-                <a href="/docs" class="api-docs-link" target="_blank">📚 API Docs</a>
-                <a href="/redoc" class="api-docs-link" target="_blank">📖 ReDoc</a>
-                <a href="/api/status" class="api-docs-link" target="_blank">📊 Status</a>
+                <a href="/docs" class="api-docs-link" target="_blank">API Documentation</a>
+                <a href="/redoc" class="api-docs-link" target="_blank">ReDoc Documentation</a>
+                <a href="/api/status" class="api-docs-link" target="_blank">API Status</a>
             </p>
             
             <div class="grid">
                 <div>
                     <h2>Real-time Data Stream</h2>
                     <div id="status" class="disconnected">Status: Connecting...</div>
-                    <div id="data-container">Connecting to real-time sensor data from parquet files...</div>
+                    <div class="controls">
+                        <button id="restartBtn" class="restart-btn" onclick="restartStream()">Restart Stream</button>
+                    </div>
+                    <div id="progress" class="progress-info">Progress: Connecting...</div>
+                    <div id="data-container">Connecting to real-time sensor data from CSV file...</div>
                 </div>
                 
                 <div>
                     <h2>API Endpoints</h2>
                     <div class="endpoint"><strong>Health Check:</strong><br><code>GET /health</code></div>
                     <div class="endpoint"><strong>Current Reading:</strong><br><code>GET /api/current</code></div>
-                    <div class="endpoint"><strong>Latest Readings:</strong><br><code>GET /api/latest/5</code></div>
+                    <div class="endpoint"><strong>Latest 1000 Readings:</strong><br><code>GET /api/all</code></div>
+                    <div class="endpoint"><strong>Latest N Readings:</strong><br><code>GET /api/latest/10</code></div>
                     <div class="endpoint"><strong>All Sensors:</strong><br><code>GET /api/sensors</code></div>
+                    <div class="endpoint"><strong>Restart Stream:</strong><br><code>POST /api/restart</code></div>
                     <div class="endpoint"><strong>WebSocket:</strong><br><code>WS /ws</code></div>
                 </div>
             </div>
@@ -671,6 +567,7 @@ async def root():
             function connect() {
                 const statusDiv = document.getElementById('status');
                 const dataContainer = document.getElementById('data-container');
+                const progressDiv = document.getElementById('progress');
                 
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const wsUrl = `${protocol}//${window.location.host}/ws`;
@@ -681,6 +578,7 @@ async def root():
                     console.log('Connected to WebSocket');
                     statusDiv.textContent = 'Status: Connected (Real-time Streaming)';
                     statusDiv.className = 'connected';
+                    document.getElementById('restartBtn').disabled = false;
                     reconnectAttempts = 0;
                 };
 
@@ -688,6 +586,7 @@ async def root():
                     console.log('WebSocket disconnected');
                     statusDiv.textContent = 'Status: Disconnected';
                     statusDiv.className = 'disconnected';
+                    document.getElementById('restartBtn').disabled = true;
                     
                     if (reconnectAttempts < maxReconnects) {
                         reconnectAttempts++;
@@ -702,6 +601,17 @@ async def root():
                         if (message.type === 'sensor_data' && message.data) {
                             const formattedData = JSON.stringify(message.data, null, 2);
                             dataContainer.innerHTML = `<pre>${formattedData}</pre>`;
+                            
+                            // Update progress if available
+                            if (message.index !== undefined && message.total !== undefined) {
+                                const progress = ((message.index / message.total) * 100).toFixed(1);
+                                progressDiv.textContent = `Progress: Row ${message.index + 1}/${message.total} (${progress}%)`;
+                            }
+                        } else if (message.type === 'stream_restarted') {
+                            progressDiv.textContent = 'Progress: Stream restarted - starting from beginning';
+                            dataContainer.innerHTML = '<pre>Stream restarted - waiting for new data...</pre>';
+                        } else if (message.type === 'restart_acknowledged') {
+                            console.log('Restart acknowledged by server');
                         }
                     } catch (error) {
                         console.error('Error parsing message:', error);
@@ -711,6 +621,27 @@ async def root():
                 socket.onerror = function(error) {
                     console.error('WebSocket error:', error);
                 };
+            }
+
+            function restartStream() {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send('restart');
+                    document.getElementById('restartBtn').disabled = true;
+                    setTimeout(() => {
+                        document.getElementById('restartBtn').disabled = false;
+                    }, 2000);
+                } else {
+                    // Try API restart if WebSocket is not available
+                    fetch('/api/restart', { method: 'POST' })
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('Restart response:', data);
+                            document.getElementById('progress').textContent = 'Progress: Restart requested via API';
+                        })
+                        .catch(error => {
+                            console.error('Error restarting stream:', error);
+                        });
+                }
             }
 
             document.addEventListener('DOMContentLoaded', connect);
@@ -730,22 +661,14 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Start background streaming when FastAPI starts."""
-    global simulation_thread, MAX_HISTORICAL_READINGS, historical_readings
-    print("FastAPI startup: Starting efficient batch-processing sensor simulation...")
-    
-    # Optimized memory usage with proper batch processing
-    if 'PORT' in os.environ:
-        print(f"Heroku mode: Processing in batches of 500 rows")
-        print(f"Historical readings limited to {MAX_HISTORICAL_READINGS}")
-        
-        # Force immediate garbage collection
-        gc.collect()
+    global simulation_thread
+    print("FastAPI startup: Starting CSV sensor data simulation...")
     
     # Start simulation thread
     if simulation_thread is None or not simulation_thread.is_alive():
         simulation_thread = Thread(target=simulate_sensor_data, daemon=True)
         simulation_thread.start()
-        print("Background simulation thread started with efficient batch processing!")
+        print("Background simulation thread started!")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -784,6 +707,18 @@ class SensorAPIClient:
             print(f"Request failed: {e}")
             return None
 
+    def restart_stream(self):
+        try:
+            response = requests.post(f"{self.base_url}/restart", timeout=5)
+            if response.status_code == 200:
+                print("\nStream Restart:")
+                print(json.dumps(response.json(), indent=2))
+                return response.json()
+            return None
+        except requests.exceptions.RequestException as e:
+            print(f"Request failed: {e}")
+            return None
+
     def run_demo(self):
         print("FastAPI Sensor Data API Demo")
         print("=" * 40)
@@ -793,11 +728,16 @@ class SensorAPIClient:
             return False
         
         self.get_current_reading()
+        
+        # Demo restart functionality
+        print("\n--- Testing Restart Functionality ---")
+        self.restart_stream()
+        
         return True
 
 # --- Server functions ---
 def run_server(host=SERVER_HOST, port=SERVER_PORT):
-    print("Starting memory-optimized FastAPI server...")
+    print("Starting CSV streaming FastAPI server...")
     print(f"Navigate to http://{host}:{port}")
     print(f"API Documentation: http://{host}:{port}/docs")
     uvicorn.run(app, host='0.0.0.0', port=port, log_level="info")
@@ -832,7 +772,7 @@ def run_both(host=SERVER_HOST, port=SERVER_PORT, api_base_url=API_BASE_URL):
 def main():
     global DATA_INTERVAL_SECONDS
     
-    parser = argparse.ArgumentParser(description='Memory-Optimized FastAPI Sensor Data Streaming')
+    parser = argparse.ArgumentParser(description='CSV Sensor Data Streaming API')
     parser.add_argument('--mode', choices=['server', 'client', 'both'], default='both')
     parser.add_argument('--host', type=str, default=SERVER_HOST)
     parser.add_argument('--port', type=int, default=None)
@@ -849,7 +789,7 @@ def main():
     print("=" * 60)
     print("CHOLESTEROL DRUG MANUFACTURING SENSOR DATA API")
     print("=" * 60)
-    print(f"Memory-Optimized FastAPI | Interval: {DATA_INTERVAL_SECONDS}s")
+    print(f"CSV Streaming FastAPI | Interval: {DATA_INTERVAL_SECONDS}s")
     
     if args.mode == 'server':
         run_server(host=server_host, port=server_port)

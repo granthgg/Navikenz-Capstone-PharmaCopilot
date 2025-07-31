@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+requests
+numpy
+pandas
+tensorflow==2.15.0
+torch
+d3rlpy==0.23
+scikit-learn
+apscheduler
+xgboost
+h5py 
