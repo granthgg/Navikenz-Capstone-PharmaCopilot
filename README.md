@@ -9,6 +9,8 @@ PharmaCopilot implements a "Forecast-then-Act" methodology with three core AI ca
 1. **Time-Series Forecasting & Classification**: LSTM-based sensor forecasting with XGBoost classifiers for quality and defect prediction
 2. **Reinforcement Learning Control**: Safe RL agents for autonomous process optimization using Conservative Q-Learning (CQL)
 3. **Generative AI Reporting**: RAG-powered automated compliance reporting with regulatory knowledge base
+<img width="897" height="590" alt="PharmaCopilot drawio" src="https://github.com/user-attachments/assets/d31753db-ae4c-4cc3-92c9-169abd843155" />
+
 
 ## Key Features
 
