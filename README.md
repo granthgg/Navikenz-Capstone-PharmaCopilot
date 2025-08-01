@@ -354,7 +354,7 @@ PharmaCopilot is designed for integration with existing manufacturing systems:
 - Review proxy configuration in UI server
 
 **Report Generation Failures:**
-- Verify Groq API key is set correctly
+- Verify API key is set correctly
 - Check ChromaDB database initialization
 - Ensure sufficient system memory for LLM operations
 
