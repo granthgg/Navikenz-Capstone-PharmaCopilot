@@ -85,17 +85,17 @@ For complete setup instructions, see the main project README.
 
 ## Features
 
-- **⚡ FastAPI-powered** with high performance and automatic API documentation
-- **🧪 Pharmaceutical Manufacturing Focus** - Cholesterol-lowering drug production monitoring
-- **💾 Memory-Optimized Streaming** with configurable batch processing (500-2000 rows)
-- **🔗 Native WebSocket streaming** for real-time data visualization
-- **📡 REST API endpoints** with automatic OpenAPI/Swagger documentation
-- **🔒 Thread-safe data handling** for concurrent access with proper locking
-- **📊 Historical data storage** with configurable retention (1000-2000 readings)
-- **🌐 Modern web interface** with interactive API documentation
-- **☁️ Heroku-ready deployment** with automatic memory constraint detection
-- **♻️ Aggressive garbage collection** for memory efficiency
-- **🎯 Real Data Only** - Works exclusively with parquet/CSV sensor data files
+- ** FastAPI-powered** with high performance and automatic API documentation
+- ** Pharmaceutical Manufacturing Focus** - Cholesterol-lowering drug production monitoring
+- ** Memory-Optimized Streaming** with configurable batch processing (500-2000 rows)
+- ** Native WebSocket streaming** for real-time data visualization
+- ** REST API endpoints** with automatic OpenAPI/Swagger documentation
+- ** Thread-safe data handling** for concurrent access with proper locking
+- ** Historical data storage** with configurable retention (1000-2000 readings)
+- ** Modern web interface** with interactive API documentation
+- ** Heroku-ready deployment** with automatic memory constraint detection
+- ** Aggressive garbage collection** for memory efficiency
+- ** Real Data Only** - Works exclusively with parquet/CSV sensor data files
 
 ## Installation
 
