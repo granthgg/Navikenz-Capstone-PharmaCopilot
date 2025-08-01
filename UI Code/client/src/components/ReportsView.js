@@ -596,7 +596,7 @@ const ReportsView = () => {
           </div>
         ) : (
           <div className="placeholder-text">
-            No reports generated yet. Generate your first AI-powered report above.
+            No reports generated saved yet.
           </div>
         )}
       </div>
