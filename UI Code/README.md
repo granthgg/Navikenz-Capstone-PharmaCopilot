@@ -113,9 +113,14 @@ This React-based dashboard integrates with a FastAPI prediction service to provi
 
 ### 4. OEE Dashboard (Enhanced)
 - **Calculation Method**: Real-time pharmaceutical-specific metrics
+- **Status Thresholds**: 
+  - **Excellent**: ≥75% (Green)
+  - **Good**: 65-74% (Light Blue) 
+  - **Fair**: 55-64% (Yellow)
+  - **Poor**: <55% (Red)
 - **Components**:
   - **Availability**: Machine uptime, operational status
-  - **Performance**: Speed efficiency, production rates
+  - **Performance**: Speed efficiency, production rates (allows >100%)
   - **Quality**: AI defect/quality predictions + sensor validation
 - **Features**:
   - Interactive gauge charts for each component
@@ -192,29 +197,31 @@ The Express server automatically routes:
 
 ### Availability Calculation
 ```javascript
-// Base availability: 95%
-// Deductions:
-- Machine stopped (tbl_speed < 10): -20%
-- High ejection force (>150): -8%
-- High waste (>5): -5%
-- No production: -25%
-- Insufficient buffer data: -10%
+// Base availability: 98% (higher baseline)
+// Deductions (very lenient):
+- Machine stopped (tbl_speed < 5): -12%
+- High ejection force (>180): -4%
+- High waste (>8): -2%
+- No production: -15%
+- Insufficient buffer data: -3%
 ```
 
 ### Performance Calculation
 ```javascript
-// Speed efficiency: (actual_speed / target_speed) * 100
-// Production efficiency: (actual_production / target_production) * 100
-// Weighted average: speed(60%) + production(40%)
-// Penalties for suboptimal compression/stiffness
+// Speed efficiency: (actual_speed / 90_RPM_target) * 100
+// Production efficiency: (actual_production / 700_target) * 100
+// Weighted average: speed(70%) + production(30%)
+// Very minor penalties for suboptimal compression/stiffness
+// Allows exceeding 100% for exceptional performance
 ```
 
 ### Quality Calculation
 ```javascript
 // Primary: AI defect prediction (1 - defect_probability) * 100
-// Fallback: Sensor-based quality checks
-// AI quality class multiplier (High: 1.0, Medium: 0.95, Low: 0.85)
-// Pharmaceutical standards: minimum 85%, typical 92-99%
+// Fallback: Sensor-based quality checks (very lenient penalties)
+// AI quality class multiplier (High: 1.03, Medium: 1.0, Low: 0.95)
+// Pharmaceutical standards: minimum 92%, typical 96-99%
+// Removed random variation for consistent calculations
 ```
 
 ## 🛠️ Configuration

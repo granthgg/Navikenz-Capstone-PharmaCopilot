@@ -7,9 +7,9 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const PREDICTION_API_PORT = process.env.PREDICTION_API_PORT || 8000;
-const PREDICTION_API_URL = `http://localhost:${PREDICTION_API_PORT}`;
+const PREDICTION_API_URL = process.env.PREDICTION_API_URL || `http://165.22.211.17:8000`;
 const REPORT_API_PORT = process.env.REPORT_API_PORT || 8001;
-const REPORT_API_URL = `http://localhost:${REPORT_API_PORT}`;
+const REPORT_API_URL = process.env.REPORT_API_URL || `http://165.22.211.17:8001`;
 
 // Enhanced CORS configuration
 const corsOptions = {
@@ -288,6 +288,108 @@ app.get('/api/reports/generate', async (req, res) => {
   }
 });
 
+// PDF Download endpoint (POST)
+app.post('/api/reports/download-pdf', async (req, res) => {
+  try {
+    console.log(`📄 PDF Download: POST /api/reports/download-pdf -> ${REPORT_API_URL}/api/reports/download-pdf`);
+    console.log(`📋 Request body:`, JSON.stringify(req.body, null, 2));
+    
+    const response = await axios.post(`${REPORT_API_URL}/api/reports/download-pdf`, req.body, {
+      timeout: 300000, // 5 minutes for PDF generation
+      responseType: 'arraybuffer', // Important for binary data
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log(`✅ PDF Download successful: ${response.status}, Content-Length: ${response.data.length}`);
+    
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', response.data.length);
+    
+    // Extract filename from response headers if available
+    const contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    } else {
+      // Generate default filename
+      const reportId = req.body?.report_id || `RPT-${Date.now()}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${reportId}.pdf"`);
+    }
+    
+    // Send binary data
+    res.send(response.data);
+    
+  } catch (error) {
+    console.error('❌ PDF Download failed:', error.message);
+    
+    if (error.code === 'ECONNABORTED') {
+      res.status(504).json({
+        error: 'PDF generation timeout',
+        message: 'PDF generation took too long. Please try again.',
+        timestamp: new Date().toISOString()
+      });
+    } else if (error.response) {
+      res.status(error.response.status).json({
+        error: 'PDF generation error',
+        message: error.response.data?.message || error.message,
+        details: error.response.data,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(503).json({
+        error: 'Report Generation API unavailable',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+});
+
+// PDF Download endpoint (GET for testing)
+app.get('/api/reports/download-pdf', async (req, res) => {
+  try {
+    const { report_type = 'quality_control', query = 'Generate pharmaceutical manufacturing report' } = req.query;
+    
+    console.log(`📄 PDF Download (GET): /api/reports/download-pdf -> ${REPORT_API_URL}/api/reports/download-pdf`);
+    console.log(`📋 Query params: report_type=${report_type}, query=${query}`);
+    
+    const response = await axios.get(`${REPORT_API_URL}/api/reports/download-pdf`, {
+      params: { report_type, query },
+      timeout: 300000, // 5 minutes for PDF generation
+      responseType: 'arraybuffer' // Important for binary data
+    });
+    
+    console.log(`✅ PDF Download (GET) successful: ${response.status}, Content-Length: ${response.data.length}`);
+    
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', response.data.length);
+    
+    // Extract filename from response headers if available
+    const contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    } else {
+      // Generate default filename
+      const reportId = `RPT-${Date.now()}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${reportId}.pdf"`);
+    }
+    
+    // Send binary data
+    res.send(response.data);
+    
+  } catch (error) {
+    console.error('❌ PDF Download (GET) failed:', error.message);
+    res.status(503).json({
+      error: 'Report Generation API unavailable',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Proxy for knowledge base endpoints
 app.use('/api/knowledge', createProxyMiddleware({
   target: REPORT_API_URL,
@@ -548,6 +650,107 @@ app.get('/reports/types', async (req, res) => {
   }
 });
 
+// Legacy PDF download endpoints
+app.post('/reports/download-pdf', async (req, res) => {
+  try {
+    console.log(`📄 Legacy PDF Download: POST /reports/download-pdf -> ${REPORT_API_URL}/api/reports/download-pdf`);
+    console.log(`📋 Request body:`, JSON.stringify(req.body, null, 2));
+    
+    const response = await axios.post(`${REPORT_API_URL}/api/reports/download-pdf`, req.body, {
+      timeout: 300000, // 5 minutes for PDF generation
+      responseType: 'arraybuffer', // Important for binary data
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log(`✅ Legacy PDF Download successful: ${response.status}, Content-Length: ${response.data.length}`);
+    
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', response.data.length);
+    
+    // Extract filename from response headers if available
+    const contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    } else {
+      // Generate default filename
+      const reportId = req.body?.report_id || `RPT-${Date.now()}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${reportId}.pdf"`);
+    }
+    
+    // Send binary data
+    res.send(response.data);
+    
+  } catch (error) {
+    console.error('❌ Legacy PDF Download failed:', error.message);
+    
+    if (error.code === 'ECONNABORTED') {
+      res.status(504).json({
+        error: 'PDF generation timeout',
+        message: 'PDF generation took too long. Please try again.',
+        timestamp: new Date().toISOString()
+      });
+    } else if (error.response) {
+      res.status(error.response.status).json({
+        error: 'PDF generation error',
+        message: error.response.data?.message || error.message,
+        details: error.response.data,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(503).json({
+        error: 'Report Generation API unavailable',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+});
+
+app.get('/reports/download-pdf', async (req, res) => {
+  try {
+    const { report_type = 'quality_control', query = 'Generate pharmaceutical manufacturing report' } = req.query;
+    
+    console.log(`📄 Legacy PDF Download (GET): /reports/download-pdf -> ${REPORT_API_URL}/api/reports/download-pdf`);
+    console.log(`📋 Query params: report_type=${report_type}, query=${query}`);
+    
+    const response = await axios.get(`${REPORT_API_URL}/api/reports/download-pdf`, {
+      params: { report_type, query },
+      timeout: 300000, // 5 minutes for PDF generation
+      responseType: 'arraybuffer' // Important for binary data
+    });
+    
+    console.log(`✅ Legacy PDF Download (GET) successful: ${response.status}, Content-Length: ${response.data.length}`);
+    
+    // Set proper headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', response.data.length);
+    
+    // Extract filename from response headers if available
+    const contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition) {
+      res.setHeader('Content-Disposition', contentDisposition);
+    } else {
+      // Generate default filename
+      const reportId = `RPT-${Date.now()}`;
+      res.setHeader('Content-Disposition', `attachment; filename="${reportId}.pdf"`);
+    }
+    
+    // Send binary data
+    res.send(response.data);
+    
+  } catch (error) {
+    console.error('❌ Legacy PDF Download (GET) failed:', error.message);
+    res.status(503).json({
+      error: 'Report Generation API unavailable',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // Handle legacy requests that come without /api prefix (from older client code)
 const legacyEndpoints = [
   '/prediction/current',
@@ -701,10 +904,24 @@ app.get(['/api/mock/forecast', '/mock/forecast'], (req, res) => {
 });
 
 app.get(['/api/mock/defect', '/mock/defect'], (req, res) => {
+  const defectProb = Math.random() * 0.3 + 0.1; // 10-40% defect probability
+  const riskLevel = defectProb > 0.7 ? 'high' : defectProb > 0.3 ? 'medium' : 'low';
+  
+  // Higher confidence for pharmaceutical defect predictions
+  let confidence;
+  if (riskLevel === 'low') {
+    confidence = 0.88 + Math.random() * 0.10; // 88-98%
+  } else if (riskLevel === 'medium') {
+    confidence = 0.82 + Math.random() * 0.12; // 82-94%
+  } else {
+    confidence = 0.85 + Math.random() * 0.11; // 85-96%
+  }
+  
   console.log(`🎭 SERVING MOCK DEFECT for ${req.url}`);
   res.json({
-    defect_probability: Math.random() * 0.3 + 0.1,
-    risk_level: Math.random() > 0.7 ? 'high' : Math.random() > 0.4 ? 'medium' : 'low',
+    defect_probability: defectProb,
+    confidence: Math.min(0.98, confidence),
+    risk_level: riskLevel,
     preprocessing_applied: false,
     source: 'mock_prediction_service'
   });
@@ -714,14 +931,29 @@ app.get(['/api/mock/quality', '/mock/quality'], (req, res) => {
   const classes = ['High', 'Medium', 'Low'];
   const selectedClass = classes[Math.floor(Math.random() * classes.length)];
   
+  // Generate more realistic confidence values for pharmaceutical applications
+  let confidence;
+  if (selectedClass === 'High') {
+    confidence = 0.85 + Math.random() * 0.12; // 85-97%
+  } else if (selectedClass === 'Medium') {
+    confidence = 0.78 + Math.random() * 0.15; // 78-93%
+  } else {
+    confidence = 0.82 + Math.random() * 0.13; // 82-95%
+  }
+  
+  // Generate balanced class probabilities that sum close to 1
+  const probabilities = [Math.random(), Math.random(), Math.random()];
+  const sum = probabilities.reduce((a, b) => a + b, 0);
+  const normalizedProbs = probabilities.map(p => p / sum);
+  
   console.log(`🎭 SERVING MOCK QUALITY for ${req.url}`);
   res.json({
     quality_class: selectedClass,
-    confidence: 0.7 + Math.random() * 0.2,
+    confidence: Math.min(0.97, confidence),
     class_probabilities: {
-      'High': Math.random() * 0.5,
-      'Medium': Math.random() * 0.5,
-      'Low': Math.random() * 0.3
+      'High': normalizedProbs[0],
+      'Medium': normalizedProbs[1], 
+      'Low': normalizedProbs[2]
     },
     source: 'mock_prediction_service'
   });

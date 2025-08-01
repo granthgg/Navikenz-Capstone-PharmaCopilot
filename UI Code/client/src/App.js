@@ -6,10 +6,12 @@ import ForecastPanel from './components/ForecastPanel';
 import RLControl from './components/RLControl';
 import ReportsView from './components/ReportsView';
 import OEEDisplay from './components/OEEDisplay';
+import DetailedReport from './components/DetailedReport';
 
 function App() {
   const [currentPanelIndex, setCurrentPanelIndex] = useState(0);
   const [showHomePage, setShowHomePage] = useState(true);
+  const [showDetailedReport, setShowDetailedReport] = useState(false);
 
   const panels = [
     {
@@ -59,6 +61,17 @@ function App() {
   const goToPanel = (index) => {
     setCurrentPanelIndex(index);
     setShowHomePage(false);
+    setShowDetailedReport(false);
+  };
+
+  const goToDetailedReport = () => {
+    setShowDetailedReport(true);
+    setShowHomePage(false);
+  };
+
+  const backToHome = () => {
+    setShowDetailedReport(false);
+    setShowHomePage(true);
   };
 
   // Keyboard navigation
@@ -84,97 +97,106 @@ function App() {
 
   return (
     <div className="App">
-      <header className="App-header">
-        <div className="floating-nav">
-          <div className="app-branding">
-            <h1 onClick={() => setShowHomePage(true)} style={{ cursor: 'pointer' }}>PHARMA COPILOT</h1>
-          </div>
-          
-          <div className="panel-navigation">
-            {panels.map((panel, index) => (
-              <button
-                key={panel.id}
-                className={`nav-btn ${index === currentPanelIndex ? 'active' : ''}`}
-                onClick={() => goToPanel(index)}
-                title={panel.description}
-              >
-                <span className="nav-btn-text">{panel.title}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </header>
-
-      <main className="dashboard-container">
-        {showHomePage ? (
-          <HomePage onNavigateToPanel={goToPanel} />
-        ) : (
-          <>
-            {/* Current Panel */}
-            <div className="panel-container">
-              <div className="panel-header">
-                <div className="panel-title">
-                  <h2>{currentPanel.title}</h2>
-                  <p className="panel-description">{currentPanel.description}</p>
-                </div>
-                <div className="panel-counter">
-                  {currentPanelIndex + 1} / {panels.length}
-                </div>
+      {showDetailedReport ? (
+        <DetailedReport onBackToHome={backToHome} />
+      ) : (
+        <>
+          <header className="App-header">
+            <div className="floating-nav">
+              <div className="app-branding">
+                <h1 onClick={() => {
+                  setShowHomePage(true);
+                  setShowDetailedReport(false);
+                }} style={{ cursor: 'pointer' }}>PHARMA COPILOT</h1>
               </div>
               
-              <div className="panel-content">
-                {currentPanel.component}
+              <div className="panel-navigation">
+                {panels.map((panel, index) => (
+                  <button
+                    key={panel.id}
+                    className={`nav-btn ${index === currentPanelIndex ? 'active' : ''}`}
+                    onClick={() => goToPanel(index)}
+                    title={panel.description}
+                  >
+                    <span className="nav-btn-text">{panel.title}</span>
+                  </button>
+                ))}
               </div>
             </div>
-          </>
-        )}
+          </header>
 
-      {/* Floating Navigation Arrows - Only show when not on home page */}
-      {!showHomePage && (
-        <>
-          {/* Navigation Arrow - Left */}
-          <button 
-            className="nav-arrow nav-arrow-left nav-arrow-floating"
-            onClick={goToPrevious}
-            title="Previous Panel"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
-            </svg>
-          </button>
+          <main className="dashboard-container">
+            {showHomePage ? (
+              <HomePage onNavigateToPanel={goToPanel} onNavigateToDetailedReport={goToDetailedReport} />
+            ) : (
+              <>
+                {/* Current Panel */}
+                <div className="panel-container">
+                  <div className="panel-header">
+                    <div className="panel-title">
+                      <h2>{currentPanel.title}</h2>
+                      <p className="panel-description">{currentPanel.description}</p>
+                    </div>
+                    <div className="panel-counter">
+                      {currentPanelIndex + 1} / {panels.length}
+                    </div>
+                  </div>
+                  
+                  <div className="panel-content">
+                    {currentPanel.component}
+                  </div>
+                </div>
+              </>
+            )}
+          </main>
 
-          {/* Navigation Arrow - Right */}
-          <button 
-            className="nav-arrow nav-arrow-right nav-arrow-floating"
-            onClick={goToNext}
-            title="Next Panel"
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
-            </svg>
-          </button>
+          {/* Floating Navigation Arrows - Only show when not on home page and not on detailed report */}
+          {!showHomePage && !showDetailedReport && (
+            <>
+              {/* Navigation Arrow - Left */}
+              <button 
+                className="nav-arrow nav-arrow-left nav-arrow-floating"
+                onClick={goToPrevious}
+                title="Previous Panel"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/>
+                </svg>
+              </button>
+
+              {/* Navigation Arrow - Right */}
+              <button 
+                className="nav-arrow nav-arrow-right nav-arrow-floating"
+                onClick={goToNext}
+                title="Next Panel"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8.59 16.59L10 18l6-6-6-6-1.41 1.41L13.17 12z"/>
+                </svg>
+              </button>
+            </>
+          )}
+
+          {/* Bottom Navigation - Only show when not on home page and not on detailed report */}
+          {!showHomePage && !showDetailedReport && (
+            <footer className="bottom-navigation">
+              <div className="nav-dots">
+                {panels.map((panel, index) => (
+                  <button
+                    key={panel.id}
+                    className={`nav-dot ${index === currentPanelIndex ? 'active' : ''}`}
+                    onClick={() => goToPanel(index)}
+                    title={panel.title}
+                  />
+                ))}
+              </div>
+              
+              <div className="keyboard-hint">
+                Navigate: Arrow Keys | Direct Access: 1-5
+              </div>
+            </footer>
+          )}
         </>
-      )}
-      </main>
-
-      {/* Bottom Navigation - Only show when not on home page */}
-      {!showHomePage && (
-        <footer className="bottom-navigation">
-          <div className="nav-dots">
-            {panels.map((panel, index) => (
-              <button
-                key={panel.id}
-                className={`nav-dot ${index === currentPanelIndex ? 'active' : ''}`}
-                onClick={() => goToPanel(index)}
-                title={panel.title}
-              />
-            ))}
-          </div>
-          
-          <div className="keyboard-hint">
-            Navigate: Arrow Keys | Direct Access: 1-5
-          </div>
-        </footer>
       )}
     </div>
   );

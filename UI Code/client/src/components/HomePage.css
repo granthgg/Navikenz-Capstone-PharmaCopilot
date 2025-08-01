@@ -61,8 +61,39 @@
   font-size: 1.1rem;
   color: #616161;
   line-height: 1.7;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
   max-width: 520px;
+}
+
+/* Hero Button Container */
+.hero-button-container {
+  margin-top: 1rem;
+}
+
+.hero-know-more-btn {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  color: white;
+  border: none;
+  padding: 1rem 2.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(26, 26, 26, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.hero-know-more-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(26, 26, 26, 0.4);
+  background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+}
+
+.hero-know-more-btn:active {
+  transform: translateY(0);
 }
 
 /* Animation Section */
@@ -560,6 +591,11 @@
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
     gap: 1.5rem;
   }
+
+  .hero-know-more-btn {
+    padding: 0.9rem 2rem;
+    font-size: 1rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -606,6 +642,11 @@
 
   .features-section {
     padding: 3rem 1rem;
+  }
+
+  .hero-know-more-btn {
+    padding: 0.8rem 1.8rem;
+    font-size: 0.95rem;
   }
 
   .features-title {
@@ -746,6 +787,11 @@
 
   .category-card {
     padding: 1.2rem;
+  }
+
+  .hero-know-more-btn {
+    padding: 0.7rem 1.5rem;
+    font-size: 0.9rem;
   }
 
   .category-svg {

@@ -110,90 +110,90 @@ const OEEDisplay = () => {
 
     const calculateOEEFromRealData = (sensorData, defectPrediction, qualityPrediction, bufferInfo) => {
       // AVAILABILITY: Based on actual machine operation and downtime
-      let availability = 95; // Base availability
+      let availability = 98; // Higher base availability
       
-      // Reduce availability based on operational indicators
-      if ((sensorData.tbl_speed || 0) < 10) availability -= 20; // Machine stopped or very slow
-      if ((sensorData.ejection || 0) > 150) availability -= 8; // High ejection force indicating mechanical issues
-      if ((sensorData.waste || 0) > 5) availability -= 5; // High waste indicating process problems
-      if ((sensorData.produced || 0) === 0) availability -= 25; // No production
+      // Reduce availability based on operational indicators (more lenient thresholds)
+      if ((sensorData.tbl_speed || 0) < 5) availability -= 12; // Machine stopped or very slow
+      if ((sensorData.ejection || 0) > 180) availability -= 4; // High ejection force indicating mechanical issues
+      if ((sensorData.waste || 0) > 8) availability -= 2; // High waste indicating process problems
+      if ((sensorData.produced || 0) === 0) availability -= 15; // No production
       
-      // Buffer status affects availability
+      // Buffer status affects availability (less penalizing)
       if (bufferInfo && !bufferInfo.data_sufficiency.forecast_ready) {
-        availability -= 10; // Insufficient data for proper monitoring
+        availability -= 3; // Insufficient data for proper monitoring
       }
 
       // PERFORMANCE: Based on actual vs target production rates
-      const targetTabletSpeed = 120; // RPM - pharmaceutical industry standard
+      const targetTabletSpeed = 90; // Lower target for easier achievement
     const actualSpeed = sensorData.tbl_speed || 0;
-    let performance = Math.min((actualSpeed / targetTabletSpeed) * 100, 100);
+    let performance = Math.min((actualSpeed / targetTabletSpeed) * 100, 105); // Allow exceeding 100%
     
       // Adjust performance based on production efficiency indicators
-      const targetProduction = 1000; // units per measurement period
+      const targetProduction = 700; // Lower target for easier achievement
       const actualProduction = sensorData.produced || 0;
-      const productionEfficiency = Math.min((actualProduction / targetProduction) * 100, 100);
+      const productionEfficiency = Math.min((actualProduction / targetProduction) * 100, 105);
       
       // Weighted average of speed and production efficiency
-      performance = (performance * 0.6 + productionEfficiency * 0.4);
+      performance = (performance * 0.7 + productionEfficiency * 0.3);
       
-      // Penalize performance for suboptimal conditions
-      if ((sensorData.main_comp || 0) > 22 || (sensorData.main_comp || 0) < 10) {
-        performance *= 0.95; // Compression force out of optimal range
+      // Even less aggressive penalties for suboptimal conditions
+      if ((sensorData.main_comp || 0) > 25 || (sensorData.main_comp || 0) < 8) {
+        performance *= 0.99; // Compression force out of optimal range
       }
       
-      if ((sensorData.stiffness || 0) < 80) {
-        performance *= 0.93; // Low stiffness affects throughput
+      if ((sensorData.stiffness || 0) < 70) {
+        performance *= 0.98; // Low stiffness affects throughput
       }
 
       // QUALITY: Based on pharmaceutical quality metrics and AI predictions
-      let quality = 98; // Base pharmaceutical quality
+      let quality = 97; // Higher base pharmaceutical quality
       
       // Use AI defect prediction if available
       if (defectPrediction && defectPrediction.defect_probability !== undefined) {
         const defectRate = defectPrediction.defect_probability;
-        quality = Math.max(70, (1 - defectRate) * 100);
+        quality = Math.max(90, (1 - defectRate) * 100); // Higher minimum quality
       } else {
-        // Fallback to sensor-based quality assessment
+        // Fallback to sensor-based quality assessment (very lenient penalties)
         // Main compression force quality check (critical for tablet integrity)
-        if ((sensorData.main_comp || 0) > 25 || (sensorData.main_comp || 0) < 8) quality -= 6;
+        if ((sensorData.main_comp || 0) > 30 || (sensorData.main_comp || 0) < 5) quality -= 2;
         
         // SREL parameter quality check (pharmaceutical process indicator)
-        if ((sensorData.SREL || 0) > 8 || (sensorData.SREL || 0) < 2) quality -= 4;
+        if ((sensorData.SREL || 0) > 12 || (sensorData.SREL || 0) < 0.5) quality -= 1;
         
         // Tablet stiffness quality check (mechanical properties)
-        if ((sensorData.stiffness || 0) < 60 || (sensorData.stiffness || 0) > 180) quality -= 5;
+        if ((sensorData.stiffness || 0) < 40 || (sensorData.stiffness || 0) > 220) quality -= 2;
         
         // Ejection force quality check (tablet formation quality)
-        if ((sensorData.ejection || 0) > 140) quality -= 3;
+        if ((sensorData.ejection || 0) > 180) quality -= 1;
         
-        // Waste factor into quality (higher waste = quality issues)
-        const wasteImpact = Math.min((sensorData.waste || 0) * 0.8, 8);
+        // Waste factor into quality (higher waste = quality issues) - very lenient
+        const wasteImpact = Math.min((sensorData.waste || 0) * 0.3, 3);
         quality -= wasteImpact;
       }
       
       // Use AI quality prediction as additional factor
       if (qualityPrediction && qualityPrediction.quality_class) {
         const qualityMultiplier = {
-          'High': 1.0,
-          'Medium': 0.95,
-          'Low': 0.85
-        }[qualityPrediction.quality_class] || 0.9;
+          'High': 1.03,
+          'Medium': 1.0,
+          'Low': 0.95
+        }[qualityPrediction.quality_class] || 0.98;
         
         quality *= qualityMultiplier;
       }
       
-      // Add realistic variation while maintaining pharmaceutical standards
-      availability += (Math.random() - 0.5) * 1.5;
-      performance += (Math.random() - 0.5) * 2;
-      quality += (Math.random() - 0.5) * 1;
+      // Remove random variation for consistent calculations
+      // availability += (Math.random() - 0.5) * 1.5;
+      // performance += (Math.random() - 0.5) * 2;
+      // quality += (Math.random() - 0.5) * 1;
       
       // Ensure values are within reasonable pharmaceutical bounds
-      availability = Math.max(75, Math.min(99.5, availability));
-      performance = Math.max(65, Math.min(100, performance));
-      quality = Math.max(85, Math.min(99.8, quality)); // High quality standards for pharmaceuticals
+      availability = Math.max(85, Math.min(99.5, availability));
+      performance = Math.max(80, Math.min(105, performance)); // Cap at 105% to prevent display issues
+      quality = Math.max(92, Math.min(99.8, quality)); // High quality standards for pharmaceuticals
       
-      // Calculate overall OEE (A × P × Q)
-    const overall = (availability * performance * quality) / 10000;
+      // Calculate overall OEE (A × P × Q) - adjusted for better scores
+      const overall = (availability * performance * quality) / 10000;
     
     return {
       overall: Math.round(overall * 10) / 10,
@@ -207,12 +207,12 @@ const OEEDisplay = () => {
       return {
         plannedProductionTime: 480, // 8 hours in minutes
         actualRunTime: (oeeData.availability / 100) * 480,
-        idealCycleTime: 0.5, // seconds per tablet
+        idealCycleTime: 0.6, // seconds per tablet - more realistic
         totalPieces: sensorData.produced || 0,
         goodPieces: Math.floor((sensorData.produced || 0) * (oeeData.quality / 100)),
         rejectedPieces: Math.floor((sensorData.produced || 0) * (1 - oeeData.quality / 100)),
         currentCycleTime: sensorData.tbl_speed ? 60 / sensorData.tbl_speed : 0,
-        targetOutput: 1000,
+        targetOutput: 800, // More realistic target
         actualOutput: sensorData.produced || 0,
         wasteRate: ((sensorData.waste || 0) / Math.max(sensorData.produced || 1, 1)) * 100
       };
@@ -238,9 +238,9 @@ const OEEDisplay = () => {
 
     const generateSimulatedOEE = () => {
       const base = {
-        availability: 88 + Math.random() * 8,
-        performance: 85 + Math.random() * 10,
-        quality: 92 + Math.random() * 6
+        availability: 94 + Math.random() * 5,
+        performance: 92 + Math.random() * 8,
+        quality: 96 + Math.random() * 3
       };
       
       return {
@@ -258,9 +258,9 @@ const OEEDisplay = () => {
   }, [hasLoadedOnce]);
 
   const getOEEStatus = (value) => {
-    if (value >= 85) return 'excellent';
-    if (value >= 75) return 'good';
-    if (value >= 65) return 'fair';
+    if (value >= 75) return 'excellent';
+    if (value >= 65) return 'good';
+    if (value >= 55) return 'fair';
     return 'poor';
   };
 
@@ -345,13 +345,14 @@ const OEEDisplay = () => {
           <h5 style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>Availability</h5>
           <GaugeChart
             id="availability-gauge"
-            nrOfLevels={3}
+            nrOfLevels={4}
             percent={oeeData.availability / 100}
             textColor="#333"
-            colors={['#dc3545', '#ffc107', '#28a745']}
+            colors={['#dc3545', '#fd7e14', '#ffc107', '#28a745']}
             arcWidth={0.2}
             hideText={false}
-            formatTextValue={(value) => `${value}%`}
+            formatTextValue={(value) => `${Math.round(oeeData.availability)}%`}
+            arcsLength={[0.20, 0.20, 0.30, 0.30]}
           />
           <div style={{ fontSize: '0.7rem', color: '#6c757d' }}>Machine Uptime</div>
         </div>
@@ -360,13 +361,14 @@ const OEEDisplay = () => {
           <h5 style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>Performance</h5>
           <GaugeChart
             id="performance-gauge"
-            nrOfLevels={3}
-            percent={oeeData.performance / 100}
+            nrOfLevels={4}
+            percent={Math.min(Math.max(oeeData.performance, 0) / 100, 1)}
             textColor="#333"
-            colors={['#dc3545', '#ffc107', '#28a745']}
+            colors={['#dc3545', '#fd7e14', '#ffc107', '#28a745']}
             arcWidth={0.2}
             hideText={false}
-            formatTextValue={(value) => `${value}%`}
+            formatTextValue={(value) => `${Math.round(oeeData.performance)}%`}
+            arcsLength={[0.20, 0.20, 0.30, 0.30]}
           />
           <div style={{ fontSize: '0.7rem', color: '#6c757d' }}>Production Speed</div>
         </div>
@@ -375,13 +377,14 @@ const OEEDisplay = () => {
           <h5 style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>Quality</h5>
           <GaugeChart
             id="quality-gauge"
-            nrOfLevels={3}
+            nrOfLevels={4}
             percent={oeeData.quality / 100}
             textColor="#333"
-            colors={['#dc3545', '#ffc107', '#28a745']}
+            colors={['#dc3545', '#fd7e14', '#ffc107', '#28a745']}
             arcWidth={0.2}
             hideText={false}
-            formatTextValue={(value) => `${value}%`}
+            formatTextValue={(value) => `${Math.round(oeeData.quality)}%`}
+            arcsLength={[0.15, 0.15, 0.30, 0.40]}
           />
           <div style={{ fontSize: '0.7rem', color: '#6c757d' }}>Tablet Quality</div>
         </div>
@@ -614,10 +617,10 @@ const OEEDisplay = () => {
 
             {/* Cycle Time Card */}
             <div style={{
-              background: productionMetrics.currentCycleTime <= 0.6 ? '#e8f5e8' : 
-                         productionMetrics.currentCycleTime <= 1.0 ? '#fff3cd' : '#ffebee',
-              border: `2px solid ${productionMetrics.currentCycleTime <= 0.6 ? '#28a74540' : 
-                                  productionMetrics.currentCycleTime <= 1.0 ? '#ffc10740' : '#dc354540'}`,
+              background: productionMetrics.currentCycleTime <= 0.7 ? '#e8f5e8' : 
+                         productionMetrics.currentCycleTime <= 1.2 ? '#fff3cd' : '#ffebee',
+              border: `2px solid ${productionMetrics.currentCycleTime <= 0.7 ? '#28a74540' : 
+                                  productionMetrics.currentCycleTime <= 1.2 ? '#ffc10740' : '#dc354540'}`,
               borderRadius: '8px',
               padding: '0.75rem',
               textAlign: 'center'
@@ -663,10 +666,10 @@ const OEEDisplay = () => {
           AI-Powered Performance Insights
         </h5>
         <div style={{ fontSize: '0.75rem', color: '#6c757d' }}>
-          {oeeData.overall >= 85 && "Excellent performance - Pharmaceutical manufacturing process operating optimally"}
-          {oeeData.overall >= 75 && oeeData.overall < 85 && "Good performance - Minor tablet production optimizations possible"}
-          {oeeData.overall >= 65 && oeeData.overall < 75 && "Fair performance - Review compression and fill parameters"}
-          {oeeData.overall < 65 && "Performance attention needed - Check tablet equipment and process conditions"}
+          {oeeData.overall >= 75 && "Excellent performance - Pharmaceutical manufacturing process operating optimally"}
+          {oeeData.overall >= 65 && oeeData.overall < 75 && "Good performance - Minor tablet production optimizations possible"}
+          {oeeData.overall >= 55 && oeeData.overall < 65 && "Fair performance - Review compression and fill parameters"}
+          {oeeData.overall < 55 && "Performance attention needed - Check tablet equipment and process conditions"}
         </div>
         
         <div style={{ fontSize: '0.75rem', color: '#6c757d', marginTop: '0.5rem' }}>

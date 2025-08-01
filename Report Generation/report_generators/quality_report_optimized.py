@@ -11,6 +11,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from .base_generator import BaseReportGenerator
 from llm_integration.prompt_templates import PromptTemplates
 
+try:
+    from utils.emoji_cleaner import clean_report_content
+except ImportError:
+    # Fallback if emoji cleaner not available
+    def clean_report_content(data):
+        return data
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,7 +29,7 @@ class QualityControlReportGenerator(BaseReportGenerator):
     Optimized for speed and efficiency.
     """
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
+    def __init__(self, api_base_url: str = "http://165.22.211.17:8000"):
         super().__init__(api_base_url)
         self.report_type = "quality_control"
         
@@ -96,7 +103,10 @@ class QualityControlReportGenerator(BaseReportGenerator):
             }
             
             logger.info(f"Quality control report generated in {processing_time:.2f}s using {generation_method}")
-            return final_response
+            
+            # Clean emojis from the report before returning
+            clean_response = clean_report_content(final_response)
+            return clean_response
             
         except Exception as e:
             logger.error(f"Error in optimized report generation: {e}")
@@ -247,7 +257,7 @@ Keep it concise and actionable."""
         
         # Build formatted report
         report = f"""
-# 📊 QUALITY CONTROL REPORT
+# [DATA] QUALITY CONTROL REPORT
 **Generated:** {timestamp}  
 **Report ID:** QC-{int(now.timestamp())}  
 **Type:** Pharmaceutical Manufacturing Quality Assessment
@@ -264,11 +274,11 @@ Keep it concise and actionable."""
 | Quality Classification | {quality_class} | {self._get_metric_status(quality_class, 'quality')} |
 | Risk Level | {risk_level} | {self._get_metric_status(risk_level, 'risk')} |
 | Current Waste | {current_waste} | {self._get_metric_status(current_waste, 'waste')} |
-| Current Production | {current_produced} | ✅ Monitored |
+| Current Production | {current_produced} | [OK] Monitored |
 
 ---
 
-## 📈 CURRENT PERFORMANCE
+## [TREND] CURRENT PERFORMANCE
 
 ### Production Metrics
 - **Current Waste Rate:** {current_waste}
@@ -288,19 +298,19 @@ Keep it concise and actionable."""
 
 ---
 
-## 📋 RECOMMENDATIONS
+## [REPORT] RECOMMENDATIONS
 
 {recommendations}
 
 ---
 
-## 📊 TREND ANALYSIS
+## [DATA] TREND ANALYSIS
 
 {self._generate_trend_analysis(recent_summaries)}
 
 ---
 
-## ✅ COMPLIANCE STATUS
+## [OK] COMPLIANCE STATUS
 
 - **Regulatory Framework:** 21 CFR Part 11 Compliant
 - **Data Integrity:** Verified
@@ -320,59 +330,59 @@ Keep it concise and actionable."""
         try:
             if isinstance(defect_prob, (int, float)):
                 if defect_prob > 0.7:
-                    return {"level": "🔴 CRITICAL", "description": "High defect probability detected"}
+                    return {"level": "[CRITICAL]", "description": "High defect probability detected"}
                 elif defect_prob > 0.4:
-                    return {"level": "🟡 WARNING", "description": "Elevated defect probability"}
+                    return {"level": "[WARNING]", "description": "Elevated defect probability"}
                 else:
-                    return {"level": "🟢 NORMAL", "description": "Defect probability within acceptable range"}
+                    return {"level": "[NORMAL]", "description": "Defect probability within acceptable range"}
             
             if risk_level:
                 if risk_level.lower() == 'high':
-                    return {"level": "🔴 CRITICAL", "description": "High risk conditions detected"}
+                    return {"level": "[CRITICAL]", "description": "High risk conditions detected"}
                 elif risk_level.lower() == 'medium':
-                    return {"level": "🟡 WARNING", "description": "Medium risk conditions"}
+                    return {"level": "[WARNING]", "description": "Medium risk conditions"}
                 else:
-                    return {"level": "🟢 NORMAL", "description": "Low risk conditions"}
+                    return {"level": "[NORMAL]", "description": "Low risk conditions"}
                     
         except:
             pass
             
-        return {"level": "🟡 MONITORING", "description": "Status under evaluation"}
+        return {"level": "[MONITORING]", "description": "Status under evaluation"}
     
     def _get_metric_status(self, value, metric_type):
         """Get status indicator for metrics"""
         if value == 'N/A' or value == 'Unknown':
-            return "⚠️ No Data"
+            return "[NO DATA]"
             
         try:
             if metric_type == 'defect' and isinstance(value, (int, float)):
                 if value > 0.7:
-                    return "🔴 High"
+                    return "[HIGH]"
                 elif value > 0.4:
-                    return "🟡 Medium"
+                    return "[MEDIUM]"
                 else:
-                    return "🟢 Low"
+                    return "[LOW]"
             
             elif metric_type == 'risk':
                 if value.lower() == 'high':
-                    return "🔴 High Risk"
+                    return "[HIGH RISK]"
                 elif value.lower() == 'medium':
-                    return "🟡 Medium Risk"
+                    return "[MEDIUM RISK]"
                 else:
-                    return "🟢 Low Risk"
+                    return "[LOW RISK]"
             
             elif metric_type == 'quality':
                 if value.lower() == 'high':
-                    return "🟢 Excellent"
+                    return "[EXCELLENT]"
                 elif value.lower() == 'medium':
-                    return "🟡 Good"
+                    return "[GOOD]"
                 else:
-                    return "🔴 Needs Attention"
+                    return "[NEEDS ATTENTION]"
                     
         except:
             pass
             
-        return "✅ Monitored"
+        return "[OK] Monitored"
     
     def _generate_recommendations(self, defect_prob, risk_level, quality_class):
         """Generate actionable recommendations"""
@@ -382,16 +392,16 @@ Keep it concise and actionable."""
             # Defect probability recommendations
             if isinstance(defect_prob, (int, float)):
                 if defect_prob > 0.7:
-                    recommendations.append("🚨 **IMMEDIATE ACTION REQUIRED:** Stop production and investigate root cause")
+                    recommendations.append("[ALERT] **IMMEDIATE ACTION REQUIRED:** Stop production and investigate root cause")
                     recommendations.append("🔧 Perform equipment calibration and maintenance")
-                    recommendations.append("📋 Review batch records for anomalies")
+                    recommendations.append("[REPORT] Review batch records for anomalies")
                 elif defect_prob > 0.4:
                     recommendations.append("⚡ **PREVENTIVE ACTION:** Increase monitoring frequency")
                     recommendations.append("🔍 Investigate process parameters")
-                    recommendations.append("📊 Review recent trend data")
+                    recommendations.append("[DATA] Review recent trend data")
                 else:
-                    recommendations.append("✅ Continue current monitoring protocols")
-                    recommendations.append("📈 Maintain process optimization")
+                    recommendations.append("[OK] Continue current monitoring protocols")
+                    recommendations.append("[TREND] Maintain process optimization")
             
             # Risk level recommendations
             if risk_level and risk_level.lower() == 'high':
@@ -404,10 +414,10 @@ Keep it concise and actionable."""
                 recommendations.append("📚 Review SOPs and training requirements")
                 
         except Exception as e:
-            recommendations.append("⚠️ Contact quality team for manual assessment")
+            recommendations.append("[WARNING] Contact quality team for manual assessment")
         
         if not recommendations:
-            recommendations.append("✅ No specific actions required - continue monitoring")
+            recommendations.append("[OK] No specific actions required - continue monitoring")
         
         return "\n".join([f"- {rec}" for rec in recommendations])
     
@@ -484,17 +494,17 @@ Keep it concise and actionable."""
         return {
             'report_id': f"QC-EMERGENCY-{int(now.timestamp())}",
             'report_content': f"""
-# 🚨 EMERGENCY QUALITY CONTROL REPORT
+# [ALERT] EMERGENCY QUALITY CONTROL REPORT
 
 **Generated:** {now.strftime("%Y-%m-%d %H:%M:%S")}  
 **Status:** Emergency Fallback Mode
 
-## ⚠️ SYSTEM STATUS
+## [WARNING] SYSTEM STATUS
 The quality control report generation system encountered an error and is operating in emergency fallback mode.
 
 **Error Details:** {error_msg}
 
-## 📋 IMMEDIATE ACTIONS REQUIRED
+## [REPORT] IMMEDIATE ACTIONS REQUIRED
 - Contact system administrator
 - Verify API connectivity
 - Check data collection services

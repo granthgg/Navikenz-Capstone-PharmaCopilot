@@ -16,7 +16,7 @@ class RLCollector:
     Collects RL action recommendations from multiple RL models and manages optimization history
     """
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
+    def __init__(self, api_base_url: str = "http://165.22.211.17:8000"):
         self.api_base_url = api_base_url
         self.rl_endpoints = {
             'baseline_model': f"{api_base_url}/api/rl_action/baseline",

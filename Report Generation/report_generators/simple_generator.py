@@ -18,7 +18,7 @@ class SimpleReportGenerator:
     without unnecessary complexity
     """
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
+    def __init__(self, api_base_url: str = "http://165.22.211.17:8000"):
         self.api_base_url = api_base_url
         
     async def generate_report(self, query: str, report_type: str = "quality_control", 

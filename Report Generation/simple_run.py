@@ -54,7 +54,7 @@ def check_core_dependencies():
 def print_simple_info(port):
     """Print simplified system information"""
     print("\n" + "="*50)
-    print(" 🏭 PharmaCopilot Report Generation")
+    print(" PharmaCopilot Report Generation")
     print("="*50)
     print(f" Status: Ready at {datetime.now().strftime('%H:%M:%S')}")
     print(f" API Server: http://localhost:{port}")

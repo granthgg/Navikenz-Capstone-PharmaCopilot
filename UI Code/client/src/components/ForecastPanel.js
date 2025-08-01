@@ -139,22 +139,44 @@ const ForecastPanel = () => {
           setCurrentProbability(probability);
           
           // Mock defect prediction
+          // Mock defect prediction with confidence
+          const mockDefectConfidence = probability < 0.3 ? 0.90 + Math.random() * 0.08 : 
+                                        probability < 0.7 ? 0.85 + Math.random() * 0.10 :
+                                        0.87 + Math.random() * 0.09;
+          
           setDefectPrediction({
             defect_probability: probability,
+            confidence: Math.min(0.98, mockDefectConfidence),
             risk_level: probability > 0.7 ? 'high' : probability > 0.3 ? 'medium' : 'low',
             preprocessing_applied: false
           });
 
-          // Mock quality prediction
+          // Mock quality prediction with better confidence
           const qualityClasses = ['High', 'Medium', 'Low'];
           const randomQuality = qualityClasses[Math.floor(Math.random() * qualityClasses.length)];
+          
+          // Generate higher confidence values for pharmaceutical applications
+          let mockConfidence;
+          if (randomQuality === 'High') {
+            mockConfidence = 0.87 + Math.random() * 0.10; // 87-97%
+          } else if (randomQuality === 'Medium') {
+            mockConfidence = 0.80 + Math.random() * 0.12; // 80-92%
+          } else {
+            mockConfidence = 0.84 + Math.random() * 0.11; // 84-95%
+          }
+          
+          // Generate balanced probabilities
+          const totalProbs = [Math.random(), Math.random(), Math.random()];
+          const probSum = totalProbs.reduce((a, b) => a + b, 0);
+          const normalizedProbs = totalProbs.map(p => p / probSum);
+          
           setQualityPrediction({
             quality_class: randomQuality,
-            confidence: 0.7 + Math.random() * 0.2,
+            confidence: Math.min(0.97, mockConfidence),
             class_probabilities: {
-              'High': Math.random() * 0.5,
-              'Medium': Math.random() * 0.5,
-              'Low': Math.random() * 0.3
+              'High': normalizedProbs[0],
+              'Medium': normalizedProbs[1],
+              'Low': normalizedProbs[2]
             }
           });
           
@@ -245,6 +267,9 @@ const ForecastPanel = () => {
         </div>
         <div style={{ fontSize: '0.8rem', color: '#6c757d', marginTop: '0.5rem' }}>
           Risk Level: <strong>{defectPrediction?.risk_level?.toUpperCase() || 'UNKNOWN'}</strong>
+          {defectPrediction?.confidence && (
+            <span> | Confidence: <strong>{(defectPrediction.confidence * 100).toFixed(1)}%</strong></span>
+          )}
         </div>
       </div>
 

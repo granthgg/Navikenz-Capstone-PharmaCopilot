@@ -18,7 +18,7 @@ class BaseReportGenerator:
     Provides common functionality for data collection, context retrieval, and report generation.
     """
     
-    def __init__(self, api_base_url: str = "http://localhost:8000"):
+    def __init__(self, api_base_url: str = "http://165.22.211.17:8000"):
         self.api_base_url = api_base_url
         self.kb_manager = KnowledgeBaseManager()
         # Initialize Gemini client with API key

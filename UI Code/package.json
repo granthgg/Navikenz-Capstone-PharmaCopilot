@@ -10,6 +10,7 @@
     "client": "cd client && npm start",
     "start-system": "node start-system.js",
     "test-apis": "node -e \"require('./start-system.js').testConnectivity()\"",
+    "test-local-report-api": "node test_local_report_api.js",
     "heroku-postbuild": "cd client && npm install && npm run build"
   },
   "dependencies": {

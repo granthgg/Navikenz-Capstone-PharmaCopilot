@@ -3,7 +3,7 @@ import Lottie from 'lottie-react';
 import './HomePage.css';
 import lottieAnimation from './assets/Web Design Layout.json';
 
-const HomePage = ({ onNavigateToPanel }) => {
+const HomePage = ({ onNavigateToPanel, onNavigateToDetailedReport }) => {
   return (
     <div className="home-page">
       <div className="hero-container">
@@ -17,6 +17,15 @@ const HomePage = ({ onNavigateToPanel }) => {
               Real-time sensor monitoring, predictive quality control, and intelligent 
               process analytics to ensure compliance and maximize efficiency.
             </p>
+            
+            <div className="hero-button-container">
+              <button 
+                className="hero-know-more-btn"
+                onClick={onNavigateToDetailedReport}
+              >
+                Know More
+              </button>
+            </div>
           </div>
           
           <div className="animation-section">

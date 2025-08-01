@@ -5,11 +5,23 @@ Quality Control Report Generator with Real Data Integration
 import logging
 import asyncio
 import json
+import sys
+import os
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 import traceback
 
 from .base_generator import BaseReportGenerator
+
+# Add parent directories to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+try:
+    from utils.emoji_cleaner import clean_report_content
+except ImportError:
+    # Fallback if emoji cleaner not available
+    def clean_report_content(data):
+        return data
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +85,10 @@ class QualityControlReportGenerator(BaseReportGenerator):
             }
             
             logger.info("Quality control report generated successfully")
-            return report
+            
+            # Clean emojis from the report before returning
+            clean_report = clean_report_content(report)
+            return clean_report
             
         except Exception as e:
             logger.error(f"Error generating quality control report: {e}")
@@ -1031,50 +1046,50 @@ The facility demonstrates {"excellent" if compliance_score >= 90 else "good" if 
         # Critical actions (0-4 hours)
         system_status = metrics.get("system_health", {}).get("overall_status", "unknown")
         if system_status == "critical":
-            actions.append("🚨 **CRITICAL (0-2 hours):** Initiate emergency response protocol for critical system status. Contact system administrators, implement manual monitoring procedures, and ensure continuous quality oversight until full system restoration.")
+            actions.append("[ALERT] **CRITICAL (0-2 hours):** Initiate emergency response protocol for critical system status. Contact system administrators, implement manual monitoring procedures, and ensure continuous quality oversight until full system restoration.")
         
         success_rate = metrics.get("collection_success_rate", 0)
         if success_rate < 50:
-            actions.append("🚨 **CRITICAL (0-4 hours):** Restore data collection systems immediately - less than 50% operational capacity poses severe risk to quality monitoring. Deploy backup systems and implement emergency data collection protocols.")
+            actions.append("[ALERT] **CRITICAL (0-4 hours):** Restore data collection systems immediately - less than 50% operational capacity poses severe risk to quality monitoring. Deploy backup systems and implement emergency data collection protocols.")
         
         # Urgent actions (4-24 hours)
         if metrics.get("quality_scores", {}).get("overall_score"):
             quality_score = metrics["quality_scores"]["overall_score"]
             if isinstance(quality_score, (int, float)) and quality_score < 0.6:
-                actions.append(f"⚠️ **URGENT (4-12 hours):** Investigate quality score decline to {quality_score:.3f} - potential batch failure risk. Conduct immediate process parameter review, verify control system functionality, and consider temporary production adjustments.")
+                actions.append(f"[WARNING] **URGENT (4-12 hours):** Investigate quality score decline to {quality_score:.3f} - potential batch failure risk. Conduct immediate process parameter review, verify control system functionality, and consider temporary production adjustments.")
         
         if metrics.get("defect_rates"):
             total_defects = sum(metrics["defect_rates"].values())
             if total_defects > 15:
-                actions.append(f"⚠️ **URGENT (8-24 hours):** Comprehensive root cause analysis required for {total_defects} detected defects. Implement Six Sigma DMAIC methodology, review process control parameters, and develop immediate corrective action plan.")
+                actions.append(f"[WARNING] **URGENT (8-24 hours):** Comprehensive root cause analysis required for {total_defects} detected defects. Implement Six Sigma DMAIC methodology, review process control parameters, and develop immediate corrective action plan.")
         
         # High priority actions (1-3 days)
         if success_rate < 85:
-            actions.append(f"🔴 **HIGH PRIORITY (24-48 hours):** Improve data collection reliability from {success_rate:.1f}% to >95%. Conduct infrastructure audit, implement system redundancy, and establish proactive monitoring protocols.")
+            actions.append(f"[HIGH] **HIGH PRIORITY (24-48 hours):** Improve data collection reliability from {success_rate:.1f}% to >95%. Conduct infrastructure audit, implement system redundancy, and establish proactive monitoring protocols.")
         
         errors = metrics.get("system_health", {}).get("collection_errors", 0)
         if errors > 5:
-            actions.append(f"🔴 **HIGH PRIORITY (24-72 hours):** Resolve {errors} system collection errors through comprehensive diagnostic review. Analyze error logs, verify network connectivity, update system configurations, and test all monitoring pathways.")
+            actions.append(f"[HIGH] **HIGH PRIORITY (24-72 hours):** Resolve {errors} system collection errors through comprehensive diagnostic review. Analyze error logs, verify network connectivity, update system configurations, and test all monitoring pathways.")
         
         # Medium priority actions (3-7 days)
         if metrics.get("forecast_accuracy", {}).get("predicted_values"):
             forecast_data = metrics["forecast_accuracy"]["predicted_values"][0]["sensors"]
             waste_forecast = forecast_data.get("waste", 0)
             if waste_forecast > 1200:
-                actions.append(f"🟡 **MEDIUM PRIORITY (3-5 days):** Implement waste reduction strategy for forecasted {waste_forecast:.1f} units. Review material usage efficiency, optimize process parameters, and establish lean manufacturing practices to reduce waste by 20%.")
+                actions.append(f"[MEDIUM] **MEDIUM PRIORITY (3-5 days):** Implement waste reduction strategy for forecasted {waste_forecast:.1f} units. Review material usage efficiency, optimize process parameters, and establish lean manufacturing practices to reduce waste by 20%.")
         
         # Routine operational actions (1-2 weeks)
         actions.extend([
-            "🔵 **ROUTINE (Weekly):** Conduct comprehensive quality metrics review with cross-functional team. Analyze trends, validate control limits, and update process capability studies based on current performance data.",
-            "🔵 **ROUTINE (Bi-weekly):** Update regulatory compliance documentation and audit trail verification. Ensure 21 CFR Part 11 compliance, validate electronic record integrity, and prepare documentation for potential regulatory inspection.",
-            "🔵 **ROUTINE (Monthly):** Perform Statistical Process Control (SPC) chart analysis and control limit validation. Update process capability indices, review control chart performance, and implement continuous improvement recommendations."
+            " **ROUTINE (Weekly):** Conduct comprehensive quality metrics review with cross-functional team. Analyze trends, validate control limits, and update process capability studies based on current performance data.",
+            " **ROUTINE (Bi-weekly):** Update regulatory compliance documentation and audit trail verification. Ensure 21 CFR Part 11 compliance, validate electronic record integrity, and prepare documentation for potential regulatory inspection.",
+            " **ROUTINE (Monthly):** Perform Statistical Process Control (SPC) chart analysis and control limit validation. Update process capability indices, review control chart performance, and implement continuous improvement recommendations."
         ])
         
         # Strategic actions (1 month+)
         actions.extend([
-            "🟢 **STRATEGIC (30 days):** Implement Quality by Design (QbD) framework optimization. Conduct design space analysis, validate critical quality attributes, and enhance process understanding through advanced statistical modeling.",
-            "🟢 **STRATEGIC (60 days):** Deploy advanced predictive analytics for proactive quality management. Integrate machine learning algorithms, establish predictive maintenance schedules, and develop real-time quality prediction models.",
-            "🟢 **STRATEGIC (90 days):** Establish comprehensive digital transformation roadmap for manufacturing excellence. Evaluate Industry 4.0 technologies, plan system integration improvements, and develop long-term quality management strategy."
+            " **STRATEGIC (30 days):** Implement Quality by Design (QbD) framework optimization. Conduct design space analysis, validate critical quality attributes, and enhance process understanding through advanced statistical modeling.",
+            " **STRATEGIC (60 days):** Deploy advanced predictive analytics for proactive quality management. Integrate machine learning algorithms, establish predictive maintenance schedules, and develop real-time quality prediction models.",
+            " **STRATEGIC (90 days):** Establish comprehensive digital transformation roadmap for manufacturing excellence. Evaluate Industry 4.0 technologies, plan system integration improvements, and develop long-term quality management strategy."
         ])
         
         return actions[:12]  # Return top 12 most relevant actions
@@ -1121,10 +1136,10 @@ The facility demonstrates {"excellent" if compliance_score >= 90 else "good" if 
             "compliance_status": "**COMPLIANCE MONITORING COMPROMISED** - System failure prevents automated compliance verification. Manual audit procedures must be implemented immediately.",
             "risk_assessment": "**HIGH RISK STATUS** - System failure creates significant operational risk. Emergency protocols must be activated immediately.",
             "action_items": [
-                "🚨 **IMMEDIATE:** Activate emergency quality monitoring procedures",
-                "🚨 **URGENT:** Contact technical support for system restoration",
-                "⚠️ **HIGH:** Implement manual documentation procedures",
-                "🔴 **CRITICAL:** Notify regulatory affairs of system issues"
+                " **IMMEDIATE:** Activate emergency quality monitoring procedures",
+                " **URGENT:** Contact technical support for system restoration",
+                " **HIGH:** Implement manual documentation procedures",
+                " **CRITICAL:** Notify regulatory affairs of system issues"
             ]
         }
     
@@ -1571,23 +1586,23 @@ The facility demonstrates {"excellent" if compliance_score >= 90 else "good" if 
             batch_quality = quality_scores.get("batch_quality", "Unknown")
             
             # Risk level assessment
-            risk_status = "🟢 Low Risk" if defect_prob < 0.2 else "🟡 Medium Risk" if defect_prob < 0.4 else "🟠 High Risk" if defect_prob < 0.6 else "🔴 Critical Risk"
+            risk_status = " Low Risk" if defect_prob < 0.2 else " Medium Risk" if defect_prob < 0.4 else " High Risk" if defect_prob < 0.6 else " Critical Risk"
             
             # Quality status assessment
-            quality_status = "✅ Excellent" if overall_score >= 0.8 else "✅ Good" if overall_score >= 0.6 else "⚠️ Review" if overall_score >= 0.4 else "❌ Critical"
+            quality_status = " Excellent" if overall_score >= 0.8 else " Good" if overall_score >= 0.6 else " Review" if overall_score >= 0.4 else " Critical"
             
             # System status formatting
             system_status = system_health.get("overall_status", "Unknown")
-            status_icon = "✅ Healthy" if system_status == "healthy" else "⚠️ Degraded" if system_status == "degraded" else "❌ Critical"
+            status_icon = " Healthy" if system_status == "healthy" else " Degraded" if system_status == "degraded" else " Critical"
             
             content_parts.append("| Metric | Current Value | Status | Trend |")
             content_parts.append("|--------|---------------|--------|-------|")
             content_parts.append(f"| Overall Quality Score | {overall_score:.3f} ({batch_quality}) | {quality_status} | Stable |")
-            content_parts.append(f"| Quality Confidence | {quality_confidence:.2%} | {'✅ High' if quality_confidence > 0.8 else '✅ Good' if quality_confidence > 0.6 else '⚠️ Monitor'} | Stable |")
+            content_parts.append(f"| Quality Confidence | {quality_confidence:.2%} | {' High' if quality_confidence > 0.8 else ' Good' if quality_confidence > 0.6 else ' Monitor'} | Stable |")
             content_parts.append(f"| Defect Risk Level | {defect_prob:.1%} | {risk_status} | Current |")
             content_parts.append(f"| System Status | {system_status} | {status_icon} | Current |")
-            content_parts.append(f"| Data Availability | {system_health.get('data_availability', 'Unknown')} | {'✅ Online' if system_health.get('successful_sources', 0) == system_health.get('total_sources', 4) else '⚠️ Limited'} | Current |")
-            content_parts.append(f"| Collection Success Rate | {metrics.get('collection_success_rate', 0):.1f}% | {'✅ Excellent' if metrics.get('collection_success_rate', 0) >= 95 else '✅ Good' if metrics.get('collection_success_rate', 0) >= 80 else '⚠️ Review'} | Current |")
+            content_parts.append(f"| Data Availability | {system_health.get('data_availability', 'Unknown')} | {' Online' if system_health.get('successful_sources', 0) == system_health.get('total_sources', 4) else ' Limited'} | Current |")
+            content_parts.append(f"| Collection Success Rate | {metrics.get('collection_success_rate', 0):.1f}% | {' Excellent' if metrics.get('collection_success_rate', 0) >= 95 else ' Good' if metrics.get('collection_success_rate', 0) >= 80 else ' Review'} | Current |")
             content_parts.append("")
             
             # Detailed Analysis
@@ -1616,25 +1631,25 @@ The facility demonstrates {"excellent" if compliance_score >= 90 else "good" if 
                     # Waste analysis
                     waste_current = first_prediction.get("waste", 0)
                     waste_future = last_prediction.get("waste", 0)
-                    waste_trend = "📈 Increasing" if waste_future > waste_current else "📉 Decreasing" if waste_future < waste_current else "➡️ Stable"
+                    waste_trend = " Increasing" if waste_future > waste_current else " Decreasing" if waste_future < waste_current else " Stable"
                     content_parts.append(f"| Waste Generation | {waste_current:.1f} units | {mid_prediction.get('waste', 0):.1f} units | {waste_future:.1f} units | {waste_trend} |")
                     
                     # Production analysis
                     prod_current = first_prediction.get("produced", 0)
                     prod_future = last_prediction.get("produced", 0)
-                    prod_trend = "📈 Increasing" if prod_future > prod_current else "📉 Decreasing" if prod_future < prod_current else "➡️ Stable"
+                    prod_trend = " Increasing" if prod_future > prod_current else " Decreasing" if prod_future < prod_current else " Stable"
                     content_parts.append(f"| Production Output | {prod_current:.1f} units | {mid_prediction.get('produced', 0):.1f} units | {prod_future:.1f} units | {prod_trend} |")
                     
                     # Ejection rate analysis
                     ej_current = first_prediction.get("ejection", 0)
                     ej_future = last_prediction.get("ejection", 0)
-                    ej_trend = "📈 Increasing" if ej_future > ej_current else "📉 Decreasing" if ej_future < ej_current else "➡️ Stable"
+                    ej_trend = " Increasing" if ej_future > ej_current else " Decreasing" if ej_future < ej_current else " Stable"
                     content_parts.append(f"| Ejection Rate | {ej_current:.1f} | {mid_prediction.get('ejection', 0):.1f} | {ej_future:.1f} | {ej_trend} |")
                     
                     # Table speed analysis
                     speed_current = first_prediction.get("tbl_speed", 0)
                     speed_future = last_prediction.get("tbl_speed", 0)
-                    speed_trend = "📈 Increasing" if speed_future > speed_current else "📉 Decreasing" if speed_future < speed_current else "➡️ Stable"
+                    speed_trend = " Increasing" if speed_future > speed_current else " Decreasing" if speed_future < speed_current else " Stable"
                     content_parts.append(f"| Table Speed | {speed_current:.1f} | {mid_prediction.get('tbl_speed', 0):.1f} | {speed_future:.1f} | {speed_trend} |")
                     
                     content_parts.append("")
@@ -1777,7 +1792,7 @@ Please review the raw data in the appendix.
             Key Information:
             {key_info}
             
-            Write a summary that explains:
+            Write a detailed summary that explains in about 200-250 words or 2-3 paragraphs:
             1. What the report found about the manufacturing process
             2. Whether things are working well or if there are concerns
             3. What needs to be done next, if anything
