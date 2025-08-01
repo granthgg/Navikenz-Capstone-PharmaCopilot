@@ -1,92 +1,84 @@
-# Smart Pharmaceutical Manufacturing Copilot - UI Dashboard
+# PharmaCopilot UI Dashboard
 
-A comprehensive real-time dashboard for pharmaceutical manufacturing process monitoring, AI-powered predictions, and Overall Equipment Effectiveness (OEE) tracking.
+React-based web interface for the PharmaCopilot pharmaceutical manufacturing optimization system.
 
-## 🏭 Overview
+## Features
 
-This React-based dashboard integrates with a FastAPI prediction service to provide:
+- Real-time sensor monitoring and visualization
+- AI-powered forecasting and quality predictions
+- Reinforcement learning control recommendations
+- Overall Equipment Effectiveness (OEE) tracking
+- Automated compliance report generation
+- Interactive process optimization dashboard
 
-- **Real-time sensor monitoring** with 7 key pharmaceutical parameters
-- **AI-powered forecasting** using LSTM models for 60-minute predictions
-- **Defect probability prediction** using XGBoost classifiers
-- **Quality class prediction** with confidence scoring
-- **Reinforcement Learning control recommendations** for process optimization
-- **Comprehensive OEE calculations** with availability, performance, and quality metrics
-- **Professional pharmaceutical-grade UI** with real-time updates
+## Architecture
 
-## 🏗️ Architecture
+- **Frontend**: React.js with Chart.js visualizations
+- **Backend**: Express.js proxy server with API routing
+- **Real-time Updates**: WebSocket integration for live sensor data
+- **API Integration**: Connects to Prediction API, Report Generation API, and Sensor Simulation
 
-### Backend Services
-- **FastAPI Prediction API** (`localhost:8000`) - AI models and predictions
-- **External Sensor API** - Real-time pharmaceutical sensor data
-- **Express Proxy Server** (`localhost:3001`) - API routing and static file serving
-
-### Frontend Components
-- **LiveSensors** - Real-time pharmaceutical sensor monitoring
-- **ForecastPanel** - AI predictions with tabbed interface (Forecast/Defect/Quality)
-- **RLControl** - Reinforcement learning action recommendations
-- **OEEDisplay** - Comprehensive OEE metrics with historical trends
-- **ReportsView** - Future GenAI integration for automated reporting
-
-### Key Features
-- **Dual API Integration**: Primary prediction API with sensor API fallback
-- **Real-time Updates**: 5-8 second polling intervals for live data
-- **Advanced OEE Calculation**: Pharmaceutical-specific metrics using AI predictions
-- **Professional UI**: Gradient styling, animations, and responsive design
-- **Error Handling**: Graceful degradation with fallback data sources
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Node.js 16+
-- Python 3.8+ (for prediction API)
-- FastAPI server running on localhost:8000
+- PharmaCopilot backend services running (see main README)
 
 ### Installation
 
-1. **Install Dependencies**
-   ```bash
-   cd "UI Code"
-   npm install
-   npm run client:install  # Install React dependencies
-   ```
+```bash
+cd "UI Code"
+npm install
+cd client && npm install
+```
 
-2. **Start the Prediction API**
-   ```bash
-   cd "../Model Run Code"
-   python prediction_api.py
-   # Ensure it's running on localhost:8000
-   ```
+### Running the Dashboard
 
-3. **Start the Dashboard**
-   ```bash
-   cd "../UI Code"
-   npm run dev
-   # Or separately:
-   # npm run server  # Express server on :3001
-   # npm run client  # React dev server on :3000
-   ```
+```bash
+# Start the complete system
+npm start
 
-4. **Access Dashboard**
-   - Dashboard: http://localhost:3000
-   - Health Check: http://localhost:3001/health
-   - API Status: http://localhost:3001/api-status
+# Development mode with auto-reload
+npm run dev
+```
 
-## 📊 Dashboard Panels
+### API Endpoints
 
-### 1. Live Sensor Monitoring
-- **Data Source**: `/api/prediction/current` (primary) or `/api/current` (fallback)
-- **Update Frequency**: Every 5 seconds
-- **Key Metrics**: 
-  - Main Compression Force, Tablet Speed, Stiffness, SREL Parameter
-  - Production Output, Waste Material, Ejection Force
-- **Features**: 
-  - Interactive gauges with color-coded status
-  - Grid layout for numerical values
-  - API status indicators
-  - Real-time data source switching
+The dashboard connects to these backend services:
+- **Prediction API**: `http://localhost:8000` - ML model inference
+- **Report Generation API**: `http://localhost:8001` - AI-powered reports
+- **Sensor Simulation**: `http://localhost:8002` - Real-time sensor data
 
-### 2. Quality Forecast (Multi-tab)
+### Component Overview
+
+- **HomePage**: System overview and key performance indicators
+- **LiveSensors**: Real-time sensor monitoring with WebSocket updates
+- **ForecastPanel**: LSTM forecasting and classification predictions
+- **RLControl**: Reinforcement learning process recommendations
+- **ReportsView**: AI-generated compliance reports
+- **OEEDisplay**: Overall Equipment Effectiveness calculations
+
+### Configuration
+
+Update API endpoints in `server.js`:
+```javascript
+const PREDICTION_API_URL = 'http://localhost:8000';
+const REPORT_API_URL = 'http://localhost:8001';
+```
+
+## Development
+
+### Testing API Connections
+```bash
+npm run test-local-report-api
+```
+
+### Building for Production
+```bash
+cd client && npm run build
+```
+
+For complete setup instructions, see the main project README.
 - **Forecast Tab**: 60-minute LSTM sensor predictions
 - **Defect Risk Tab**: AI-powered defect probability analysis
 - **Quality Tab**: Quality class prediction with confidence scores
@@ -136,7 +128,7 @@ This React-based dashboard integrates with a FastAPI prediction service to provi
   - Automated narrative analysis
   - Regulatory submission formats
 
-## 🔧 API Integration
+##  API Integration
 
 ### Prediction API Endpoints
 ```
@@ -162,7 +154,7 @@ The Express server automatically routes:
 - `/api/sensor/*` → External sensor API
 - `/api/*` → External sensor API (legacy compatibility)
 
-## 🎨 Styling & UI
+##  Styling & UI
 
 ### Design System
 - **Color Scheme**: Professional pharmaceutical blue/green/orange
@@ -178,7 +170,7 @@ The Express server automatically routes:
 - `.forecast-probability` - Large metric displays
 - `.btn-accept/.btn-reject` - Operator control buttons
 
-## 📱 Real-time Features
+##  Real-time Features
 
 ### Update Frequencies
 - **Live Sensors**: 5 seconds
@@ -193,7 +185,7 @@ The Express server automatically routes:
 - Conditional rendering for large datasets
 - Chart optimizations with `ResponsiveContainer`
 
-## 🔍 OEE Calculation Details
+##  OEE Calculation Details
 
 ### Availability Calculation
 ```javascript
@@ -224,7 +216,7 @@ The Express server automatically routes:
 // Removed random variation for consistent calculations
 ```
 
-## 🛠️ Configuration
+##  Configuration
 
 ### Environment Variables
 ```bash
@@ -243,7 +235,7 @@ SENSOR_API_URL=https://cholesterol-sensor-api-4ad950146578.herokuapp.com
 - **OEE Thresholds**: Update calculation functions
 - **Color Schemes**: Modify CSS custom properties
 
-## 🔧 Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 
@@ -272,7 +264,7 @@ SENSOR_API_URL=https://cholesterol-sensor-api-4ad950146578.herokuapp.com
 - `/api-status` - Check all API connections
 - `/api/prediction/buffer-status` - Check data availability
 
-## 📈 Future Enhancements
+##  Future Enhancements
 
 ### Planned Features
 - WebSocket real-time connections
@@ -289,7 +281,7 @@ SENSOR_API_URL=https://cholesterol-sensor-api-4ad950146578.herokuapp.com
 - Quality management systems
 - Regulatory compliance tracking
 
-## 🤝 Contributing
+##  Contributing
 
 When making changes:
 1. Update component tests
@@ -298,9 +290,7 @@ When making changes:
 4. Test fallback mechanisms
 5. Update documentation
 
-## 📄 License
 
-MIT License - Pharmaceutical Manufacturing Copilot
 
 ---
 

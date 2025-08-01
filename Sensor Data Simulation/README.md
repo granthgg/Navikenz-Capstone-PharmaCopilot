@@ -1,6 +1,87 @@
-# Cholesterol-Lowering Drug Manufacturing Sensor Data API
+# PharmaCopilot Sensor Data Simulation
 
-A **memory-optimized FastAPI application** that streams live sensor data from pharmaceutical manufacturing processes, specifically designed for cholesterol-lowering drug production monitoring. Features ultra-efficient batch processing of parquet data files with Heroku-ready deployment.
+FastAPI-based sensor data simulation service for pharmaceutical manufacturing processes with real-time WebSocket streaming.
+
+## Features
+
+- Real-time sensor data simulation from historical pharmaceutical manufacturing data
+- WebSocket streaming for live data feeds
+- REST API endpoints for sensor data access
+- Memory-optimized streaming with batch processing
+- Heroku-ready deployment with automatic memory management
+- Thread-safe concurrent data access
+
+## Architecture
+
+- **Data Source**: Historical time-series data from `processed_timeseries.parquet`
+- **Streaming**: WebSocket-based real-time data broadcasting
+- **API**: FastAPI with automatic OpenAPI documentation
+- **Memory Management**: Configurable batch processing for efficient memory usage
+
+## Quick Start
+
+### Prerequisites
+- Python 3.8+
+- `processed_timeseries.parquet` data file
+
+### Installation
+
+```bash
+cd "Sensor Data Simulation"
+pip install -r requirements.txt
+```
+
+### Running the Service
+
+```bash
+# Start both server and WebSocket client
+python app_streaming.py
+
+# Server only
+python app_streaming.py --mode server --port 8002
+
+# Custom configuration
+python app_streaming.py --mode server --host 0.0.0.0 --port 8002 --interval 5
+```
+
+## API Endpoints
+
+- **GET /health**: Service health check
+- **GET /api/status**: System status and memory usage
+- **GET /api/current**: Current sensor reading
+- **GET /api/sensor/{sensor_name}**: Specific sensor value
+- **GET /api/latest/{count}**: Latest N readings (max 20)
+- **GET /api/all**: All historical readings
+- **GET /api/sensors**: Available sensor names
+- **WebSocket /ws**: Real-time streaming connection
+
+## WebSocket Usage
+
+```javascript
+const socket = new WebSocket('ws://localhost:8002/ws');
+socket.onmessage = function(event) {
+    const message = JSON.parse(event.data);
+    if (message.type === 'sensor_data') {
+        console.log('New sensor data:', message.data);
+    }
+};
+```
+
+## Configuration
+
+- **Data File**: `processed_timeseries.parquet` (configurable via `DATA_FILE_PATH`)
+- **Update Interval**: 10 seconds (configurable via `--interval`)
+- **Batch Size**: Auto-optimized based on environment (500-2000 rows)
+- **Memory Management**: Automatic Heroku detection and optimization
+
+## Integration
+
+The Sensor Data Simulation integrates with:
+- **Prediction API**: Provides real-time sensor data for model inference
+- **UI Dashboard**: WebSocket streaming for live sensor visualization
+- **Report Generation**: Historical data for compliance reporting
+
+For complete setup instructions, see the main project README.
 
 ## Features
 
@@ -399,18 +480,7 @@ Error responses include descriptive messages:
 - **Garbage Collection**: Aggressive memory management with configurable frequency
 - **Batch Processing**: Ultra-efficient data streaming for large files
 
-## Migration from Flask
 
-This version has been upgraded from Flask to FastAPI. Key improvements:
-
-- ✅ **Better Performance**: 2-3x faster request handling
-- ✅ **Native WebSocket**: No need for Socket.IO libraries  
-- ✅ **Automatic Documentation**: Interactive API docs
-- ✅ **Type Safety**: Built-in request/response validation
-- ✅ **Modern Standards**: OpenAPI 3.0 compliance
-- ✅ **Async Support**: Better handling of concurrent connections
-- ✅ **Memory Optimization**: Advanced batch processing and garbage collection
-- ✅ **Pharmaceutical Focus**: Specialized for drug manufacturing monitoring
 
 ## Use Cases
 
@@ -421,6 +491,3 @@ This API is specifically designed for:
 - **Process Optimization** - Real-time analysis of manufacturing parameters
 - **Alert Systems** - Immediate notification of production anomalies
 
-## License
-
-This project is provided as-is for pharmaceutical manufacturing demonstration purposes. 

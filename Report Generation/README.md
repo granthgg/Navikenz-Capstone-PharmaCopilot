@@ -1,54 +1,87 @@
-# 🚀 PharmaCopilot Report Generation System
+# PharmaCopilot Report Generation System
 
-An AI-powered, RAG-based report generation system for pharmaceutical manufacturing that automatically creates comprehensive, regulatory-compliant reports using real-time data from forecasting, classification, and reinforcement learning systems.
+AI-powered automated compliance reporting system with RAG-based knowledge retrieval for pharmaceutical manufacturing.
 
-## 🏗️ System Architecture
+## Features
 
-### Core Components
+- RAG-powered LLM integration with Groq API (Llama 3.3-70B, Mixtral-8x7B)
+- ChromaDB vector database for regulatory knowledge retrieval
+- Multiple report types for comprehensive compliance coverage
+- Real-time data integration from PharmaCopilot APIs
+- 21 CFR 11 compliant output formatting
 
-1. **RAG-Powered LLM Integration**
-   - Groq API with Llama models (3.3-70B, 3.1-70B, Mixtral-8x7B)
-   - Vector-based knowledge retrieval using ChromaDB
-   - Real-time context injection from historical data
+## Architecture
 
-2. **Knowledge Base System**
-   - ChromaDB vector database for embeddings
-   - Sentence Transformers for semantic search
-   - Automated data ingestion and cleanup
+- **LLM Integration**: Groq API with multiple model support
+- **Knowledge Base**: ChromaDB with sentence transformers
+- **Data Collection**: Automated API data gathering
+- **Report Engine**: Template-based generation with AI enhancement
 
-3. **Data Collection Framework**
-   - Automated collection from forecasting APIs (LSTM predictions)
-   - Classification data (defect/quality predictions)
-   - RL action recommendations
-   - Scheduled background data gathering
+## Report Types
 
-4. **Report Generation Engine**
-   - Multiple report types (Quality Control, Batch Analysis, Deviation, OEE)
-   - Template-based fallback system
-   - 21 CFR 11 compliant output
+- **Quality Control Analysis**: Defect probability and risk assessment
+- **Batch Record Analysis**: Production efficiency and quality metrics
+- **Process Deviation Investigation**: Root cause analysis and corrective actions
+- **OEE Performance Summary**: Equipment effectiveness reporting
+- **Regulatory Compliance Review**: Compliance status and recommendations
+- **Manufacturing Excellence Report**: Overall performance assessment
 
-## 📊 Available Report Types
+## Quick Start
 
-### 1. Quality Control Reports
-- Real-time defect probability analysis
-- Risk assessment and categorization
-- Historical trend analysis
-- Regulatory compliance notes
+### Prerequisites
+- Python 3.8+
+- Groq API key
+- PharmaCopilot backend services running
 
-### 2. Batch Record Analysis
-- Production efficiency metrics
-- Process parameter evaluation
-- Quality attribute assessment
-- Batch disposition recommendations
+### Installation
 
-### 3. Process Deviation Investigation
-- Root cause analysis
-- Impact assessment
-- Corrective action plans
-- Regulatory reporting requirements
+```bash
+cd "Report Generation"
+pip install fastapi chromadb groq sentence-transformers uvicorn
+```
 
-### 4. OEE Performance Reports
-- Availability, Performance, Quality metrics
+### Configuration
+
+Set your Groq API key:
+```bash
+export GROQ_API_KEY=your_api_key_here
+```
+
+### Running the Service
+
+```bash
+python simple_run.py
+```
+
+The service will be available at `http://localhost:8001`
+
+## API Endpoints
+
+### Generate Report
+```bash
+POST /api/reports/generate
+Content-Type: application/json
+
+{
+  "report_type": "quality_control",
+  "query": "Generate comprehensive quality analysis",
+  "additional_context": {}
+}
+```
+
+### Health Check
+```bash
+GET /api/reports/health
+```
+
+## Integration
+
+The Report Generation system automatically collects data from:
+- **Prediction API** (`localhost:8000`): LSTM forecasts and classifications
+- **Sensor API** (`localhost:8002`): Real-time sensor data
+- **Knowledge Base**: Historical regulatory data and compliance guidelines
+
+For complete setup instructions, see the main project README.
 - Loss analysis and categorization
 - Benchmark comparisons
 - Improvement recommendations
@@ -59,7 +92,7 @@ An AI-powered, RAG-based report generation system for pharmaceutical manufacturi
 - Data integrity evaluation
 - Compliance gap analysis
 
-## 🛠️ Installation & Setup
+##  Installation & Setup
 
 ### Prerequisites
 - Python 3.8+
@@ -112,7 +145,7 @@ python run_report_system.py --host 0.0.0.0 --port 8001 --api-url http://localhos
 - Interactive docs: `http://localhost:8001/docs`
 - ReDoc: `http://localhost:8001/redoc`
 
-## 📡 Integration with PharmaCopilot Dashboard
+##  Integration with PharmaCopilot Dashboard
 
 ### Frontend Integration
 The system integrates seamlessly with the existing React dashboard:
@@ -135,7 +168,7 @@ const response = await axios.post('/api/reports/generate', {
 - System status monitoring
 - Error handling and fallback displays
 
-## 🔄 Automated Data Collection
+##  Automated Data Collection
 
 ### Scheduling
 - **Data Collection**: Every 5 minutes from all API sources
@@ -158,7 +191,7 @@ const response = await axios.post('/api/reports/generate', {
    - Speed, compression, and fill adjustments
    - Model performance metrics
 
-## 🧠 RAG System Architecture
+##  RAG System Architecture
 
 ### Knowledge Retrieval Process
 1. **Query Processing**: Convert user query to embeddings
@@ -176,7 +209,7 @@ Collections:
 └── templates/          # Report templates and examples
 ```
 
-## 📋 Example Usage
+##  Example Usage
 
 ### Generate Quality Control Report
 ```python
@@ -206,7 +239,7 @@ response = requests.post('http://localhost:8001/api/knowledge/search', json={
 results = response.json()['results']
 ```
 
-## 🔧 Configuration Options
+##  Configuration Options
 
 ### Command Line Arguments
 - `--host`: API server host (default: 0.0.0.0)
@@ -220,7 +253,7 @@ results = response.json()['results']
 - `CHROMADB_PATH`: Custom ChromaDB storage path
 - `LOG_LEVEL`: Default logging level
 
-## 📊 System Monitoring
+##  System Monitoring
 
 ### Health Checks
 ```bash
@@ -237,7 +270,7 @@ curl http://localhost:8001/api/knowledge/status
 curl http://localhost:8001/api/data/summaries?hours=6
 ```
 
-## 🔒 Security & Compliance
+##  Security & Compliance
 
 ### 21 CFR Part 11 Compliance
 - Audit trails for all data operations
@@ -251,7 +284,7 @@ curl http://localhost:8001/api/data/summaries?hours=6
 - Automated data cleanup
 - Access logging and monitoring
 
-## 🐛 Troubleshooting
+##  Troubleshooting
 
 ### Common Issues
 
@@ -279,7 +312,7 @@ curl http://localhost:8001/api/data/summaries?hours=6
 python run_report_system.py --log-level DEBUG
 ```
 
-## 🚀 Performance Optimization
+##  Performance Optimization
 
 ### Recommended Settings
 - **Production**: Use `llama-3.3-70b-versatile` for best quality
@@ -291,7 +324,7 @@ python run_report_system.py --log-level DEBUG
 - FastAPI can be deployed with multiple workers
 - Knowledge base can be shared across instances
 
-## 📈 Future Enhancements
+##  Future Enhancements
 
 ### Planned Features
 - Additional report types (Manufacturing Excellence, Sustainability)
@@ -307,7 +340,7 @@ python run_report_system.py --log-level DEBUG
 - Webhook notifications for report completion
 - Export to multiple formats (PDF, Word, Excel)
 
-## 🤝 Contributing
+##  Contributing
 
 ### Development Setup
 1. Clone the repository
@@ -327,9 +360,7 @@ Report Generation/
 └── run_report_system.py # Main entry point
 ```
 
-## 📄 License
 
-This system is part of the PharmaCopilot project and follows the same licensing terms.
 
 ---
 
