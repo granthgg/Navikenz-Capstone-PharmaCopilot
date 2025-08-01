@@ -364,14 +364,6 @@ PharmaCopilot is designed for integration with existing manufacturing systems:
 - **Model Inference**: Use GPU acceleration when available
 - **Database Operations**: Implement connection pooling for high-throughput scenarios
 
-## Contributing
-
-This project was developed as part of the Navikenz Capstone Program. For contributions or questions:
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement changes with appropriate tests
-4. Submit a pull request with detailed description
 
 
 
@@ -382,15 +374,7 @@ This project was developed as part of the Navikenz Capstone Program. For contrib
 - **Operating System**: Windows 10+, Ubuntu 18.04+, macOS 10.15+
 - **Browser Support**: Chrome 90+, Firefox 88+, Safari 14+
 
-## Future Enhancements
 
-- **Advanced RL Algorithms**: Implementation of SAC and TD3 for comparison
-- **Expanded Sensor Integration**: Support for additional sensor types and protocols
-- **Enhanced Reporting**: Custom report templates and advanced analytics
-- **Mobile Interface**: Responsive design optimization for mobile monitoring
-- **Cloud Deployment**: Containerized deployment with Kubernetes orchestration
-
----
 
 **PharmaCopilot v1.0** - Transforming pharmaceutical manufacturing through artificial intelligence and predictive analytics.
 
