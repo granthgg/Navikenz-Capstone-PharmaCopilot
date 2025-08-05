@@ -2,6 +2,15 @@
 
 PharmaCopilot is a comprehensive AI-driven platform designed to revolutionize pharmaceutical manufacturing through intelligent forecasting, autonomous control, and automated compliance reporting. The system integrates advanced machine learning models with real-time monitoring to prevent batch defects, optimize production efficiency, and ensure regulatory compliance.
 
+<img width="1920" height="932" alt="image" src="https://github.com/user-attachments/assets/2d7a4ed0-8e95-490f-9985-8815c1feacbc" />
+<img width="1920" height="928" alt="image" src="https://github.com/user-attachments/assets/5b3bc6a1-ceff-4d95-baa4-a7309ef13b12" />
+<img width="1920" height="916" alt="image" src="https://github.com/user-attachments/assets/1ed3f0b9-8a35-4ad2-bfd3-ded6e5bed787" />
+<img width="1920" height="929" alt="image" src="https://github.com/user-attachments/assets/51c71150-fb32-4bab-8491-ac6dc134e702" />
+<img width="1920" height="931" alt="image" src="https://github.com/user-attachments/assets/5539bd4f-8066-4127-9a6b-6eb26e63a18c" />
+
+
+
+
 ## System Architecture
 
 PharmaCopilot implements a "Forecast-then-Act" methodology with three core AI capabilities:
