@@ -340,14 +340,7 @@ CHROMA_DB_PATH=./knowledge_base/chroma_db
 ### Model Configuration
 Models are automatically loaded from their respective directories. Update `MODEL_DIR` and `RL_MODEL_DIR` paths in configuration files if models are stored elsewhere.
 
-## System Integration
 
-PharmaCopilot is designed for integration with existing manufacturing systems:
-
-- **MES Integration**: REST API endpoints for Manufacturing Execution Systems
-- **SCADA Compatibility**: Real-time data exchange protocols
-- **ERP Integration**: Batch and production data synchronization
-- **LIMS Integration**: Laboratory data import and quality parameter sharing
 
 ## Troubleshooting
 
