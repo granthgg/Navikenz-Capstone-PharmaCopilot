@@ -370,12 +370,10 @@ Models are automatically loaded from their respective directories. Update `MODEL
 
 
 
-## Technical Requirements
+## Technical Requirements when running Locally
 
-- **Minimum System Requirements**: 8GB RAM, 4 CPU cores, 10GB storage
-- **Recommended**: 16GB RAM, 8 CPU cores, GPU support for faster inference
-- **Operating System**: Windows 10+, Ubuntu 18.04+, macOS 10.15+
-- **Browser Support**: Chrome 90+, Firefox 88+, Safari 14+
+- **Minimum System Requirements**: 8GB RAM, 4 CPU cores, 6-8GB storage
+
 
 
 
