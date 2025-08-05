@@ -2,6 +2,16 @@
 
 PharmaCopilot is a comprehensive AI-driven platform designed to revolutionize pharmaceutical manufacturing through intelligent forecasting, autonomous control, and automated compliance reporting. The system integrates advanced machine learning models with real-time monitoring to prevent batch defects, optimize production efficiency, and ensure regulatory compliance.
 
+## Key Features
+
+- **Real-time Sensor Monitoring**: Live data collection and processing from manufacturing sensors
+- **Predictive Quality Control**: 60-minute ahead forecasting with 97.2% accuracy
+- **Defect Prevention**: Early defect detection with 94.8% F1-score
+- **Autonomous Process Control**: RL-based parameter adjustments within safety constraints
+- **Compliance Automation**: 21 CFR 11 compliant report generation
+- **OEE Dashboard**: Real-time Overall Equipment Effectiveness monitoring
+- **Interactive Web Interface**: Comprehensive dashboard for monitoring and control
+
 
 <img width="1920" height="932" alt="image" src="https://github.com/user-attachments/assets/2d7a4ed0-8e95-490f-9985-8815c1feacbc" />
 <img width="1920" height="928" alt="image" src="https://github.com/user-attachments/assets/5b3bc6a1-ceff-4d95-baa4-a7309ef13b12" />
@@ -21,16 +31,6 @@ PharmaCopilot implements a "Forecast-then-Act" methodology with three core AI ca
 3. **Generative AI Reporting**: RAG-powered automated compliance reporting with regulatory knowledge base
 <img width="897" height="590" alt="PharmaCopilot drawio" src="https://github.com/user-attachments/assets/d31753db-ae4c-4cc3-92c9-169abd843155" />
 
-
-## Key Features
-
-- **Real-time Sensor Monitoring**: Live data collection and processing from manufacturing sensors
-- **Predictive Quality Control**: 60-minute ahead forecasting with 97.2% accuracy
-- **Defect Prevention**: Early defect detection with 94.8% F1-score
-- **Autonomous Process Control**: RL-based parameter adjustments within safety constraints
-- **Compliance Automation**: 21 CFR 11 compliant report generation
-- **OEE Dashboard**: Real-time Overall Equipment Effectiveness monitoring
-- **Interactive Web Interface**: Comprehensive dashboard for monitoring and control
 
 ## Project Structure
 
