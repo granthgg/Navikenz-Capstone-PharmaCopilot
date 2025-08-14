@@ -342,38 +342,6 @@ Models are automatically loaded from their respective directories. Update `MODEL
 
 
 
-## Troubleshooting
-
-### Common Issues
-
-**Model Loading Errors:**
-- Ensure all model files are present in the correct directories
-- Check Python environment has all required packages
-- Verify TensorFlow/PyTorch compatibility
-
-**API Connection Issues:**
-- Confirm all services are running on correct ports
-- Check firewall settings and network connectivity
-- Review proxy configuration in UI server
-
-**Report Generation Failures:**
-- Verify API key is set correctly
-- Check ChromaDB database initialization
-- Ensure sufficient system memory for LLM operations
-
-### Performance Optimization
-
-- **Memory Usage**: Configure batch sizes based on available system memory
-- **Model Inference**: Use GPU acceleration when available
-- **Database Operations**: Implement connection pooling for high-throughput scenarios
-
-
-
-
-## Technical Requirements when running Locally
-
-- **Minimum System Requirements**: 8GB RAM, 4 CPU cores, 6-8GB storage
-
 
 
 
